@@ -6,7 +6,7 @@ import {
   choiceBoardStorageKey,
   createChoiceBoardState,
   createInitialChoiceBoardState,
-  getSelectedChoice,
+  getChoiceConfirmation,
   maxChoiceCards,
   minChoiceCards,
   removeChoice,
@@ -19,12 +19,17 @@ const app = document.querySelector<HTMLDivElement>("#app");
 
 let state = createInitialChoiceBoardState();
 
-function renderChoiceCard(choice: ChoiceBoardState["choices"][number]): HTMLButtonElement {
+function renderChoiceCard(
+  choice: ChoiceBoardState["choices"][number],
+  selectedChoiceId: string | null,
+): HTMLButtonElement {
+  const isSelected = choice.id === selectedChoiceId;
   const button = document.createElement("button");
   button.type = "button";
   button.dataset.choiceId = choice.id;
-  button.className = "choice-card";
+  button.className = isSelected ? "choice-card choice-card--selected" : "choice-card";
   button.setAttribute("aria-label", choice.label);
+  button.setAttribute("aria-pressed", String(isSelected));
 
   const emoji = document.createElement("span");
   emoji.className = "choice-card__emoji";
@@ -39,23 +44,25 @@ function renderChoiceCard(choice: ChoiceBoardState["choices"][number]): HTMLButt
 }
 
 function renderConfirmation(stateToRender: ChoiceBoardState): HTMLElement {
-  const selectedChoice = getSelectedChoice(stateToRender);
+  const confirmationModel = getChoiceConfirmation(stateToRender);
   const confirmation = document.createElement("section");
-  confirmation.className = "confirmation";
+  confirmation.className = confirmationModel.selectedChoice
+    ? "confirmation confirmation--selected"
+    : "confirmation";
   confirmation.setAttribute("aria-live", "polite");
 
-  if (!selectedChoice) {
-    confirmation.textContent = "カードをえらんでね";
+  if (!confirmationModel.selectedChoice) {
+    confirmation.textContent = confirmationModel.promptLabel;
     return confirmation;
   }
 
   const emoji = document.createElement("div");
   emoji.className = "confirmation__emoji";
-  emoji.textContent = selectedChoice.emoji;
+  emoji.textContent = confirmationModel.selectedChoice.emoji;
 
   const label = document.createElement("div");
   label.className = "confirmation__label";
-  label.textContent = `${selectedChoice.label} にする`;
+  label.textContent = confirmationModel.confirmationLabel;
 
   confirmation.append(emoji, label);
   return confirmation;
@@ -71,7 +78,7 @@ function render(): void {
   choices.className = "choice-board__cards";
 
   for (const choice of state.choices) {
-    choices.append(renderChoiceCard(choice));
+    choices.append(renderChoiceCard(choice, state.selectedChoiceId));
   }
 
   shell.append(choices, renderConfirmation(state), renderEditor(state));
@@ -183,6 +190,12 @@ function injectStyles(): void {
       outline-offset: 2px;
     }
 
+    .choice-card--selected {
+      border-color: #2f80ed;
+      background: #edf7ff;
+      box-shadow: 0 0 0 3px #d5ebff;
+    }
+
     .choice-card__emoji {
       font-size: 44px;
       line-height: 1;
@@ -207,14 +220,48 @@ function injectStyles(): void {
       text-align: center;
     }
 
+    .confirmation--selected {
+      border-style: solid;
+      border-color: #80b7e8;
+      background: #eff8ff;
+      animation: confirmation-pop 360ms ease-out both;
+    }
+
     .confirmation__emoji {
-      font-size: 56px;
+      font-size: 76px;
       line-height: 1;
+      animation: confirmation-emoji-pop 420ms ease-out both;
     }
 
     .confirmation__label {
       color: #102a43;
-      font-size: 20px;
+      font-size: 24px;
+    }
+
+    @keyframes confirmation-pop {
+      0% {
+        opacity: 0.76;
+        transform: scale(0.94);
+      }
+      70% {
+        transform: scale(1.02);
+      }
+      100% {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    @keyframes confirmation-emoji-pop {
+      0% {
+        transform: scale(0.72);
+      }
+      72% {
+        transform: scale(1.08);
+      }
+      100% {
+        transform: scale(1);
+      }
     }
 
     .choice-editor {
@@ -274,6 +321,13 @@ function injectStyles(): void {
       margin: 0;
       color: #627d98;
       font-size: 12px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .confirmation--selected,
+      .confirmation__emoji {
+        animation: none;
+      }
     }
   `;
   document.head.append(style);

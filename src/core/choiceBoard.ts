@@ -9,6 +9,12 @@ export interface ChoiceBoardState {
   selectedChoiceId: string | null;
 }
 
+export interface ChoiceConfirmation {
+  selectedChoice: ChoiceCard | null;
+  promptLabel: string;
+  confirmationLabel: string | null;
+}
+
 export const choiceBoardStorageKey = "choiceBoardState";
 export const minChoiceCards = 2;
 export const maxChoiceCards = 4;
@@ -57,6 +63,16 @@ export function selectChoice(
 
 export function getSelectedChoice(state: ChoiceBoardState): ChoiceCard | null {
   return state.choices.find((choice) => choice.id === state.selectedChoiceId) ?? null;
+}
+
+export function getChoiceConfirmation(state: ChoiceBoardState): ChoiceConfirmation {
+  const selectedChoice = getSelectedChoice(state);
+
+  return {
+    selectedChoice,
+    promptLabel: "カードをえらんでね",
+    confirmationLabel: selectedChoice ? `${selectedChoice.label} にする` : null,
+  };
 }
 
 export function canAddChoice(state: ChoiceBoardState): boolean {
