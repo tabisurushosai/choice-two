@@ -1,10 +1,17 @@
 import {
+  addChoice,
+  canAddChoice,
+  canRemoveChoice,
   ChoiceBoardState,
   choiceBoardStorageKey,
   createChoiceBoardState,
   createInitialChoiceBoardState,
   getSelectedChoice,
+  maxChoiceCards,
+  minChoiceCards,
+  removeChoice,
   selectChoice,
+  updateChoice,
 } from "./core/choiceBoard";
 import { store } from "./storage";
 
@@ -67,8 +74,75 @@ function render(): void {
     choices.append(renderChoiceCard(choice));
   }
 
-  shell.append(choices, renderConfirmation(state));
+  shell.append(choices, renderConfirmation(state), renderEditor(state));
   app.replaceChildren(shell);
+}
+
+function renderEditor(stateToRender: ChoiceBoardState): HTMLElement {
+  const editor = document.createElement("section");
+  editor.className = "choice-editor";
+  editor.setAttribute("aria-label", "カード編集");
+
+  const heading = document.createElement("h4");
+  heading.className = "choice-editor__heading";
+  heading.textContent = "カード編集";
+
+  const list = document.createElement("div");
+  list.className = "choice-editor__list";
+
+  for (const choice of stateToRender.choices) {
+    const row = document.createElement("div");
+    row.className = "choice-editor__row";
+
+    const emojiInput = document.createElement("input");
+    emojiInput.className = "choice-editor__emoji-input";
+    emojiInput.dataset.action = "update";
+    emojiInput.dataset.choiceId = choice.id;
+    emojiInput.dataset.field = "emoji";
+    emojiInput.value = choice.emoji;
+    emojiInput.maxLength = 8;
+    emojiInput.setAttribute("aria-label", `${choice.label}の絵文字`);
+
+    const labelInput = document.createElement("input");
+    labelInput.className = "choice-editor__label-input";
+    labelInput.dataset.action = "update";
+    labelInput.dataset.choiceId = choice.id;
+    labelInput.dataset.field = "label";
+    labelInput.value = choice.label;
+    labelInput.maxLength = 24;
+    labelInput.setAttribute("aria-label", `${choice.label}のことば`);
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "choice-editor__delete";
+    deleteButton.dataset.action = "delete";
+    deleteButton.dataset.choiceId = choice.id;
+    deleteButton.textContent = "削除";
+    deleteButton.disabled = !canRemoveChoice(stateToRender);
+
+    row.append(emojiInput, labelInput, deleteButton);
+    list.append(row);
+  }
+
+  const addButton = document.createElement("button");
+  addButton.type = "button";
+  addButton.className = "choice-editor__add";
+  addButton.dataset.action = "add";
+  addButton.textContent = "カードを追加";
+  addButton.disabled = !canAddChoice(stateToRender);
+
+  const note = document.createElement("p");
+  note.className = "choice-editor__note";
+  note.textContent = `${minChoiceCards}〜${maxChoiceCards}枚まで`;
+
+  editor.append(heading, list, addButton, note);
+  return editor;
+}
+
+async function saveState(nextState: ChoiceBoardState): Promise<void> {
+  state = nextState;
+  render();
+  await store.set(choiceBoardStorageKey, state);
 }
 
 function injectStyles(): void {
@@ -142,6 +216,65 @@ function injectStyles(): void {
       color: #102a43;
       font-size: 20px;
     }
+
+    .choice-editor {
+      display: grid;
+      gap: 8px;
+      padding-top: 4px;
+    }
+
+    .choice-editor__heading {
+      margin: 0;
+      font-size: 14px;
+    }
+
+    .choice-editor__list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .choice-editor__row {
+      display: grid;
+      grid-template-columns: 48px minmax(0, 1fr) auto;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .choice-editor input {
+      box-sizing: border-box;
+      width: 100%;
+      min-height: 34px;
+      border: 1px solid #bcccdc;
+      border-radius: 6px;
+      color: #102a43;
+      font: inherit;
+    }
+
+    .choice-editor__emoji-input {
+      text-align: center;
+    }
+
+    .choice-editor button {
+      min-height: 34px;
+      border: 1px solid #9fb3c8;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #102a43;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .choice-editor button:disabled {
+      color: #829ab1;
+      cursor: not-allowed;
+    }
+
+    .choice-editor__note {
+      margin: 0;
+      color: #627d98;
+      font-size: 12px;
+    }
   `;
   document.head.append(style);
 }
@@ -150,13 +283,41 @@ app?.addEventListener("click", async (event) => {
   const target = event.target;
   if (!(target instanceof Element)) return;
 
+  const actionButton = target.closest<HTMLButtonElement>("[data-action]");
+  if (actionButton?.dataset.action === "add") {
+    await saveState(addChoice(state, { emoji: "⭐", label: "あたらしい" }));
+    return;
+  }
+
+  if (actionButton?.dataset.action === "delete") {
+    const choiceId = actionButton.dataset.choiceId;
+    if (!choiceId) return;
+
+    await saveState(removeChoice(state, choiceId));
+    return;
+  }
+
   const card = target.closest<HTMLButtonElement>(".choice-card");
   const choiceId = card?.dataset.choiceId;
   if (!choiceId) return;
 
-  state = selectChoice(state, choiceId);
-  render();
-  await store.set(choiceBoardStorageKey, state);
+  await saveState(selectChoice(state, choiceId));
+});
+
+app?.addEventListener("change", async (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement)) return;
+  if (target.dataset.action !== "update") return;
+
+  const choiceId = target.dataset.choiceId;
+  if (!choiceId) return;
+
+  const choice = state.choices.find((item) => item.id === choiceId);
+  if (!choice) return;
+
+  const nextEmoji = target.dataset.field === "emoji" ? target.value : choice.emoji;
+  const nextLabel = target.dataset.field === "label" ? target.value : choice.label;
+  await saveState(updateChoice(state, choiceId, { emoji: nextEmoji, label: nextLabel }));
 });
 
 async function initialize(): Promise<void> {
