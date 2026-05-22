@@ -31,10 +31,12 @@ export const minChoiceCards = 2;
 export const maxChoiceCards = 4;
 export const defaultParentPin = "1234";
 
-interface LegacyChoiceBoardState {
+export interface LegacyChoiceBoardState {
   choices: ChoiceCard[];
   selectedChoiceId: string | null;
 }
+
+export type StoredChoiceBoardState = ChoiceBoardState | LegacyChoiceBoardState;
 
 const defaultChoices: ChoiceCard[] = [
   { id: "apple", emoji: "🍎", label: "りんご" },
@@ -51,7 +53,7 @@ export function createInitialChoiceBoardState(): ChoiceBoardState {
 }
 
 export function createChoiceBoardState(
-  savedState: ChoiceBoardState | LegacyChoiceBoardState | null,
+  savedState: StoredChoiceBoardState | null,
 ): ChoiceBoardState {
   if (!savedState) {
     return createInitialChoiceBoardState();

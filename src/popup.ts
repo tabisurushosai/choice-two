@@ -18,6 +18,7 @@ import {
   switchToChildMode,
   switchToParentMode,
   switchChoiceSet,
+  StoredChoiceBoardState,
   updateParentPin,
   updateChoice,
   updateChoiceSetName,
@@ -622,7 +623,8 @@ app?.addEventListener("change", async (event) => {
 });
 
 async function initialize(): Promise<void> {
-  state = createChoiceBoardState(await store.get<ChoiceBoardState>(choiceBoardStorageKey));
+  const savedState = await store.get<StoredChoiceBoardState>(choiceBoardStorageKey);
+  state = createChoiceBoardState(savedState);
   render();
 }
 
