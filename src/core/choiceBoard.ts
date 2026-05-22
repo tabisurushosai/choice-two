@@ -16,6 +16,7 @@ export interface ChoiceBoardState {
   activeSetId: string;
   mode: ChoiceBoardMode;
   parentPin: string;
+  premium: PremiumState;
 }
 
 export interface ChoiceConfirmation {
@@ -25,6 +26,20 @@ export interface ChoiceConfirmation {
 }
 
 export type ChoiceBoardMode = "parent" | "child";
+export type PremiumStatus = "free" | "trial" | "premium";
+
+export interface PremiumState {
+  trialStartedAt: number | null;
+  premiumUnlocked: boolean;
+}
+
+export interface PremiumGate {
+  status: PremiumStatus;
+  trialEndsAt: number | null;
+  maxCards: number;
+  maxSets: number | null;
+  checkoutUrl: string;
+}
 
 export interface ChoiceBoardText {
   defaultChoices: ChoiceCard[];
@@ -39,7 +54,13 @@ export interface ChoiceBoardText {
 
 export const choiceBoardStorageKey = "choiceBoardState";
 export const minChoiceCards = 2;
-export const maxChoiceCards = 4;
+export const freeMaxChoiceCards = 3;
+export const premiumMaxChoiceCards = 6;
+export const maxChoiceCards = premiumMaxChoiceCards;
+export const freeChoiceSetLimit = 1;
+export const premiumTrialDays = 7;
+export const premiumTrialMs = premiumTrialDays * 24 * 60 * 60 * 1000;
+export const stripeCheckoutUrl = "https://buy.stripe.com/test_choice_two_premium";
 export const defaultParentPin = "1234";
 
 export interface LegacyChoiceBoardState {
@@ -73,6 +94,7 @@ export function createInitialChoiceBoardState(
     activeSetId: "set-1",
     mode: "parent",
     parentPin: defaultParentPin,
+    premium: createFreePremiumState(),
   };
 }
 
@@ -85,12 +107,14 @@ export function createChoiceBoardState(
   }
 
   if ("choices" in savedState) {
+    const premium = createFreePremiumState();
     const legacySet = createChoiceSet(
       "set-1",
       text.firstSetName,
       savedState.choices,
       savedState.selectedChoiceId,
       text,
+      getChoiceCardLimit({ premium }),
     );
 
     return {
@@ -98,10 +122,18 @@ export function createChoiceBoardState(
       activeSetId: legacySet.id,
       mode: "parent",
       parentPin: defaultParentPin,
+      premium,
     };
   }
 
-  const sets = normalizeChoiceSets(savedState.sets, text);
+  const premium = normalizePremiumState(savedState);
+  const hasPremium = hasPremiumAccess({ premium });
+  const sets = normalizeChoiceSets(
+    savedState.sets,
+    text,
+    getChoiceCardLimit({ premium }),
+    hasPremium ? null : freeChoiceSetLimit,
+  );
   const activeSetId = sets.some((set) => set.id === savedState.activeSetId)
     ? savedState.activeSetId
     : sets[0].id;
@@ -111,6 +143,7 @@ export function createChoiceBoardState(
     activeSetId,
     mode: normalizeChoiceBoardMode(savedState.mode),
     parentPin: normalizeParentPin(savedState.parentPin),
+    premium,
   };
 }
 
@@ -182,7 +215,7 @@ export function getChoiceConfirmation(
 }
 
 export function canAddChoice(state: ChoiceBoardState): boolean {
-  return getActiveChoiceSet(state).choices.length < maxChoiceCards;
+  return getActiveChoiceSet(state).choices.length < getChoiceCardLimit(state);
 }
 
 export function canRemoveChoice(state: ChoiceBoardState): boolean {
@@ -231,6 +264,7 @@ export function updateChoice(
         };
       }),
       text,
+      getChoiceCardLimit(state),
     ),
   });
 }
@@ -278,7 +312,10 @@ export function switchChoiceSet(
 export function addChoiceSet(
   state: ChoiceBoardState,
   text: ChoiceBoardText = defaultChoiceBoardText,
+  now = Date.now(),
 ): ChoiceBoardState {
+  if (!canAddChoiceSet(state, now)) return state;
+
   const newSetId = createChoiceSetId(state.sets);
   const newSet = createDefaultChoiceSet(
     newSetId,
@@ -291,6 +328,66 @@ export function addChoiceSet(
     sets: [...state.sets, newSet],
     activeSetId: newSet.id,
   };
+}
+
+export function canAddChoiceSet(
+  state: ChoiceBoardState,
+  now = Date.now(),
+): boolean {
+  return hasPremiumAccess(state, now) || state.sets.length < freeChoiceSetLimit;
+}
+
+export function startPremiumTrial(
+  state: ChoiceBoardState,
+  now = Date.now(),
+): ChoiceBoardState {
+  if (state.premium.trialStartedAt !== null || state.premium.premiumUnlocked) {
+    return state;
+  }
+
+  return {
+    ...state,
+    premium: {
+      ...state.premium,
+      trialStartedAt: now,
+    },
+  };
+}
+
+export function getPremiumGate(
+  state: ChoiceBoardState,
+  now = Date.now(),
+): PremiumGate {
+  const trialEndsAt =
+    state.premium.trialStartedAt === null
+      ? null
+      : state.premium.trialStartedAt + premiumTrialMs;
+  const hasAccess = hasPremiumAccess(state, now);
+
+  return {
+    status: state.premium.premiumUnlocked ? "premium" : hasAccess ? "trial" : "free",
+    trialEndsAt: hasAccess && !state.premium.premiumUnlocked ? trialEndsAt : null,
+    maxCards: hasAccess ? premiumMaxChoiceCards : freeMaxChoiceCards,
+    maxSets: hasAccess ? null : freeChoiceSetLimit,
+    checkoutUrl: stripeCheckoutUrl,
+  };
+}
+
+export function hasPremiumAccess(
+  state: Pick<ChoiceBoardState, "premium">,
+  now = Date.now(),
+): boolean {
+  if (state.premium.premiumUnlocked) return true;
+  if (state.premium.trialStartedAt === null) return false;
+
+  return now < state.premium.trialStartedAt + premiumTrialMs;
+}
+
+export function getChoiceCardLimit(
+  state: Pick<ChoiceBoardState, "premium">,
+  now = Date.now(),
+): number {
+  return hasPremiumAccess(state, now) ? premiumMaxChoiceCards : freeMaxChoiceCards;
 }
 
 export function updateChoiceSetName(
@@ -310,9 +407,10 @@ export function updateChoiceSetName(
 function normalizeChoices(
   choices: ChoiceCard[],
   text: ChoiceBoardText = defaultChoiceBoardText,
+  maxCards = maxChoiceCards,
 ): ChoiceCard[] {
   const normalized = choices
-    .slice(0, maxChoiceCards)
+    .slice(0, maxCards)
     .map((choice) => ({
       id: choice.id,
       emoji: normalizeEmoji(choice.emoji),
@@ -329,14 +427,18 @@ function normalizeChoices(
 function normalizeChoiceSets(
   sets: ChoiceSet[],
   text: ChoiceBoardText = defaultChoiceBoardText,
+  maxCards = maxChoiceCards,
+  maxSets: number | null = null,
 ): ChoiceSet[] {
-  const normalized = sets.map((set, index) =>
+  const setsToNormalize = maxSets === null ? sets : sets.slice(0, maxSets);
+  const normalized = setsToNormalize.map((set, index) =>
     createChoiceSet(
       set.id || `set-${index + 1}`,
       set.name || createChoiceSetName(index + 1, text),
       set.choices,
       set.selectedChoiceId,
       text,
+      maxCards,
     ),
   );
 
@@ -357,8 +459,9 @@ function createChoiceSet(
   choicesToNormalize: ChoiceCard[],
   selectedChoiceId: string | null,
   text: ChoiceBoardText = defaultChoiceBoardText,
+  maxCards = maxChoiceCards,
 ): ChoiceSet {
-  const choices = normalizeChoices(choicesToNormalize, text);
+  const choices = normalizeChoices(choicesToNormalize, text, maxCards);
 
   return {
     id,
@@ -407,6 +510,36 @@ function normalizeParentPin(pin: unknown): string {
 
   const digits = pin.replace(/\D/g, "").slice(0, 8);
   return digits || defaultParentPin;
+}
+
+function createFreePremiumState(): PremiumState {
+  return {
+    trialStartedAt: null,
+    premiumUnlocked: false,
+  };
+}
+
+function normalizePremiumState(savedState: unknown): PremiumState {
+  if (
+    !savedState ||
+    typeof savedState !== "object" ||
+    !("premium" in savedState) ||
+    !savedState.premium ||
+    typeof savedState.premium !== "object"
+  ) {
+    return createFreePremiumState();
+  }
+
+  const premium = savedState.premium as Partial<PremiumState>;
+  const trialStartedAt =
+    typeof premium.trialStartedAt === "number" && Number.isFinite(premium.trialStartedAt)
+      ? premium.trialStartedAt
+      : null;
+
+  return {
+    trialStartedAt,
+    premiumUnlocked: premium.premiumUnlocked === true,
+  };
 }
 
 function createChoiceId(choices: ChoiceCard[]): string {

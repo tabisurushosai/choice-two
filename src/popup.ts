@@ -2,6 +2,7 @@ import {
   addChoice,
   addChoiceSet,
   canAddChoice,
+  canAddChoiceSet,
   canRemoveChoice,
   ChoiceBoardState,
   ChoiceCard,
@@ -12,10 +13,12 @@ import {
   createInitialChoiceBoardState,
   getActiveChoiceSet,
   getChoiceConfirmation,
-  maxChoiceCards,
+  getChoiceCardLimit,
+  getPremiumGate,
   minChoiceCards,
   removeChoice,
   selectChoice,
+  startPremiumTrial,
   switchToChildMode,
   switchToParentMode,
   switchChoiceSet,
@@ -125,6 +128,7 @@ function render(): void {
   shell.append(choices, renderConfirmation(state));
 
   if (state.mode === "parent") {
+    shell.append(renderPremiumGate(state));
     shell.append(renderEditor(state));
   }
 
@@ -224,9 +228,58 @@ function renderSetSwitcher(stateToRender: ChoiceBoardState): HTMLElement {
   addButton.className = "choice-set__add";
   addButton.dataset.action = "add-set";
   addButton.textContent = t("addSetButton");
+  addButton.disabled = !canAddChoiceSet(stateToRender);
 
   switcher.append(label, select, nameInput, addButton);
   return switcher;
+}
+
+function renderPremiumGate(stateToRender: ChoiceBoardState): HTMLElement {
+  const premium = getPremiumGate(stateToRender);
+  const gate = document.createElement("section");
+  gate.className = "premium-gate";
+  gate.setAttribute("aria-label", t("premiumGateAria"));
+
+  const status = document.createElement("p");
+  status.className = "premium-gate__status";
+
+  if (premium.status === "premium") {
+    status.textContent = t("premiumStatusPremium");
+  } else if (premium.status === "trial" && premium.trialEndsAt !== null) {
+    status.textContent = t("premiumStatusTrial", formatDate(premium.trialEndsAt));
+  } else {
+    status.textContent = t("premiumStatusFree");
+  }
+
+  const limits = document.createElement("p");
+  limits.className = "premium-gate__limits";
+  limits.textContent =
+    premium.maxSets === null
+      ? t("premiumLimitsPremium", String(premium.maxCards))
+      : t("premiumLimitsFree", [String(premium.maxSets), String(premium.maxCards)]);
+
+  const actions = document.createElement("div");
+  actions.className = "premium-gate__actions";
+
+  if (stateToRender.premium.trialStartedAt === null && premium.status === "free") {
+    const trialButton = document.createElement("button");
+    trialButton.type = "button";
+    trialButton.className = "premium-gate__button";
+    trialButton.dataset.action = "start-trial";
+    trialButton.textContent = t("startTrialButton");
+    actions.append(trialButton);
+  }
+
+  const checkoutLink = document.createElement("a");
+  checkoutLink.className = "premium-gate__checkout";
+  checkoutLink.href = premium.checkoutUrl;
+  checkoutLink.target = "_blank";
+  checkoutLink.rel = "noopener noreferrer";
+  checkoutLink.textContent = t("checkoutButton");
+  actions.append(checkoutLink);
+
+  gate.append(status, limits, actions);
+  return gate;
 }
 
 function renderEditor(stateToRender: ChoiceBoardState): HTMLElement {
@@ -285,10 +338,20 @@ function renderEditor(stateToRender: ChoiceBoardState): HTMLElement {
 
   const note = document.createElement("p");
   note.className = "choice-editor__note";
-  note.textContent = t("cardLimit", [String(minChoiceCards), String(maxChoiceCards)]);
+  note.textContent = t("cardLimit", [
+    String(minChoiceCards),
+    String(getChoiceCardLimit(stateToRender)),
+  ]);
 
   editor.append(heading, list, addButton, note);
   return editor;
+}
+
+function formatDate(timestamp: number): string {
+  return new Intl.DateTimeFormat(chrome.i18n.getUILanguage(), {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(timestamp));
 }
 
 async function saveState(nextState: ChoiceBoardState): Promise<void> {
@@ -394,6 +457,11 @@ function injectStyles(): void {
       cursor: pointer;
     }
 
+    .choice-set__add:disabled {
+      color: #829ab1;
+      cursor: not-allowed;
+    }
+
     .choice-board__cards {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -464,6 +532,52 @@ function injectStyles(): void {
     .confirmation__label {
       color: #102a43;
       font-size: 24px;
+    }
+
+    .premium-gate {
+      display: grid;
+      gap: 6px;
+      padding: 10px;
+      border: 1px solid #d9e2ec;
+      border-radius: 8px;
+      background: #f8fafc;
+    }
+
+    .premium-gate__status,
+    .premium-gate__limits {
+      margin: 0;
+      font-size: 12px;
+    }
+
+    .premium-gate__status {
+      color: #102a43;
+      font-weight: 700;
+    }
+
+    .premium-gate__limits {
+      color: #52606d;
+    }
+
+    .premium-gate__actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .premium-gate__button,
+    .premium-gate__checkout {
+      box-sizing: border-box;
+      min-height: 32px;
+      padding: 6px 10px;
+      border: 1px solid #9fb3c8;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #102a43;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
     }
 
     @keyframes confirmation-pop {
@@ -587,6 +701,11 @@ app?.addEventListener("click", async (event) => {
 
   if (actionButton?.dataset.action === "add-set") {
     await saveState(addChoiceSet(state, messages));
+    return;
+  }
+
+  if (actionButton?.dataset.action === "start-trial") {
+    await saveState(startPremiumTrial(state));
     return;
   }
 
