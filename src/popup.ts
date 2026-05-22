@@ -1,17 +1,22 @@
 import {
   addChoice,
+  addChoiceSet,
   canAddChoice,
   canRemoveChoice,
   ChoiceBoardState,
+  ChoiceCard,
   choiceBoardStorageKey,
   createChoiceBoardState,
   createInitialChoiceBoardState,
+  getActiveChoiceSet,
   getChoiceConfirmation,
   maxChoiceCards,
   minChoiceCards,
   removeChoice,
   selectChoice,
+  switchChoiceSet,
   updateChoice,
+  updateChoiceSetName,
 } from "./core/choiceBoard";
 import { store } from "./storage";
 
@@ -20,7 +25,7 @@ const app = document.querySelector<HTMLDivElement>("#app");
 let state = createInitialChoiceBoardState();
 
 function renderChoiceCard(
-  choice: ChoiceBoardState["choices"][number],
+  choice: ChoiceCard,
   selectedChoiceId: string | null,
 ): HTMLButtonElement {
   const isSelected = choice.id === selectedChoiceId;
@@ -70,6 +75,7 @@ function renderConfirmation(stateToRender: ChoiceBoardState): HTMLElement {
 
 function render(): void {
   if (!app) return;
+  const activeSet = getActiveChoiceSet(state);
 
   const shell = document.createElement("main");
   shell.className = "choice-board";
@@ -77,15 +83,57 @@ function render(): void {
   const choices = document.createElement("div");
   choices.className = "choice-board__cards";
 
-  for (const choice of state.choices) {
-    choices.append(renderChoiceCard(choice, state.selectedChoiceId));
+  for (const choice of activeSet.choices) {
+    choices.append(renderChoiceCard(choice, activeSet.selectedChoiceId));
   }
 
-  shell.append(choices, renderConfirmation(state), renderEditor(state));
+  shell.append(renderSetSwitcher(state), choices, renderConfirmation(state), renderEditor(state));
   app.replaceChildren(shell);
 }
 
+function renderSetSwitcher(stateToRender: ChoiceBoardState): HTMLElement {
+  const activeSet = getActiveChoiceSet(stateToRender);
+  const switcher = document.createElement("section");
+  switcher.className = "choice-set";
+  switcher.setAttribute("aria-label", "セット切替");
+
+  const label = document.createElement("label");
+  label.className = "choice-set__label";
+  label.textContent = "セット";
+
+  const select = document.createElement("select");
+  select.className = "choice-set__select";
+  select.dataset.action = "switch-set";
+  select.setAttribute("aria-label", "表示するセット");
+
+  for (const set of stateToRender.sets) {
+    const option = document.createElement("option");
+    option.value = set.id;
+    option.textContent = set.name;
+    option.selected = set.id === stateToRender.activeSetId;
+    select.append(option);
+  }
+
+  const nameInput = document.createElement("input");
+  nameInput.className = "choice-set__name";
+  nameInput.dataset.action = "rename-set";
+  nameInput.dataset.setId = activeSet.id;
+  nameInput.value = activeSet.name;
+  nameInput.maxLength = 24;
+  nameInput.setAttribute("aria-label", "セット名");
+
+  const addButton = document.createElement("button");
+  addButton.type = "button";
+  addButton.className = "choice-set__add";
+  addButton.dataset.action = "add-set";
+  addButton.textContent = "セット追加";
+
+  switcher.append(label, select, nameInput, addButton);
+  return switcher;
+}
+
 function renderEditor(stateToRender: ChoiceBoardState): HTMLElement {
+  const activeSet = getActiveChoiceSet(stateToRender);
   const editor = document.createElement("section");
   editor.className = "choice-editor";
   editor.setAttribute("aria-label", "カード編集");
@@ -97,7 +145,7 @@ function renderEditor(stateToRender: ChoiceBoardState): HTMLElement {
   const list = document.createElement("div");
   list.className = "choice-editor__list";
 
-  for (const choice of stateToRender.choices) {
+  for (const choice of activeSet.choices) {
     const row = document.createElement("div");
     row.className = "choice-editor__row";
 
@@ -164,6 +212,46 @@ function injectStyles(): void {
     .choice-board {
       display: grid;
       gap: 12px;
+    }
+
+    .choice-set {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+    }
+
+    .choice-set__label {
+      color: #52606d;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .choice-set__select,
+    .choice-set__name,
+    .choice-set__add {
+      box-sizing: border-box;
+      min-height: 34px;
+      border: 1px solid #bcccdc;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #102a43;
+      font: inherit;
+    }
+
+    .choice-set__select {
+      min-width: 0;
+    }
+
+    .choice-set__name {
+      grid-column: 1 / 2;
+      width: 100%;
+    }
+
+    .choice-set__add {
+      grid-column: 2 / 3;
+      font-weight: 700;
+      cursor: pointer;
     }
 
     .choice-board__cards {
@@ -338,6 +426,11 @@ app?.addEventListener("click", async (event) => {
   if (!(target instanceof Element)) return;
 
   const actionButton = target.closest<HTMLButtonElement>("[data-action]");
+  if (actionButton?.dataset.action === "add-set") {
+    await saveState(addChoiceSet(state));
+    return;
+  }
+
   if (actionButton?.dataset.action === "add") {
     await saveState(addChoice(state, { emoji: "⭐", label: "あたらしい" }));
     return;
@@ -360,13 +453,28 @@ app?.addEventListener("click", async (event) => {
 
 app?.addEventListener("change", async (event) => {
   const target = event.target;
+  if (target instanceof HTMLSelectElement && target.dataset.action === "switch-set") {
+    await saveState(switchChoiceSet(state, target.value));
+    return;
+  }
+
   if (!(target instanceof HTMLInputElement)) return;
+
+  if (target.dataset.action === "rename-set") {
+    const setId = target.dataset.setId;
+    if (!setId) return;
+
+    await saveState(updateChoiceSetName(state, setId, target.value));
+    return;
+  }
+
   if (target.dataset.action !== "update") return;
 
   const choiceId = target.dataset.choiceId;
   if (!choiceId) return;
 
-  const choice = state.choices.find((item) => item.id === choiceId);
+  const activeSet = getActiveChoiceSet(state);
+  const choice = activeSet.choices.find((item) => item.id === choiceId);
   if (!choice) return;
 
   const nextEmoji = target.dataset.field === "emoji" ? target.value : choice.emoji;
