@@ -1,9 +1,12 @@
 import {
   ChoiceBoardState,
+  choiceBoardStorageKey,
+  createChoiceBoardState,
   createInitialChoiceBoardState,
   getSelectedChoice,
   selectChoice,
 } from "./core/choiceBoard";
+import { store } from "./storage";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 
@@ -143,7 +146,7 @@ function injectStyles(): void {
   document.head.append(style);
 }
 
-app?.addEventListener("click", (event) => {
+app?.addEventListener("click", async (event) => {
   const target = event.target;
   if (!(target instanceof Element)) return;
 
@@ -153,7 +156,13 @@ app?.addEventListener("click", (event) => {
 
   state = selectChoice(state, choiceId);
   render();
+  await store.set(choiceBoardStorageKey, state);
 });
 
+async function initialize(): Promise<void> {
+  state = createChoiceBoardState(await store.get<ChoiceBoardState>(choiceBoardStorageKey));
+  render();
+}
+
 injectStyles();
-render();
+void initialize();

@@ -9,6 +9,8 @@ export interface ChoiceBoardState {
   selectedChoiceId: string | null;
 }
 
+export const choiceBoardStorageKey = "choiceBoardState";
+
 const defaultChoices: ChoiceCard[] = [
   { id: "apple", emoji: "🍎", label: "りんご" },
   { id: "banana", emoji: "🍌", label: "バナナ" },
@@ -16,8 +18,26 @@ const defaultChoices: ChoiceCard[] = [
 
 export function createInitialChoiceBoardState(): ChoiceBoardState {
   return {
-    choices: defaultChoices,
+    choices: defaultChoices.map((choice) => ({ ...choice })),
     selectedChoiceId: null,
+  };
+}
+
+export function createChoiceBoardState(
+  savedState: ChoiceBoardState | null,
+): ChoiceBoardState {
+  if (!savedState) {
+    return createInitialChoiceBoardState();
+  }
+
+  const choices = savedState.choices.map((choice) => ({ ...choice }));
+  const selectedChoiceId = choices.some((choice) => choice.id === savedState.selectedChoiceId)
+    ? savedState.selectedChoiceId
+    : null;
+
+  return {
+    choices,
+    selectedChoiceId,
   };
 }
 
