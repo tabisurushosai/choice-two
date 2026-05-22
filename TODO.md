@@ -1,0 +1,13 @@
+# choice-two TODO
+- [ ] T001: src/popup.ts に popup骨格(選択肢カード表示 + 確定表示エリア)を構築
+- [ ] T1B: 保存は src/storage.ts の store(get/set/remove)経由に統一し、状態・ロジックは src/core/ に chrome.*/DOM 非依存で分離する(将来PWA移植のため)
+- [ ] T002: 選択肢カードのCRUD(絵文字/ことば、2〜4枚)を chrome.storage.local に保存・読込
+- [ ] T003: 子供がカードをタップ→大きく表示して確定する演出
+- [ ] T004: 選択肢セットを複数保存・切替(おやつ/あそび 等)
+- [ ] T005: 保護者/子供モード切替を簡易PIN(storage.local)で実装
+- [ ] T006: 起動時に storage.local から全状態を復元
+- [ ] T007: _locales ja/en を chrome.i18n で全UIに適用
+- [ ] T008: Premiumゲート(7日トライアル + Stripe Checkout URL)。無料はセット1つ・最大3枚、Premiumでセット無制限・最大6枚
+- [ ] T009: npm run build を通し ts/lint を解消
+- [ ] T010: release/choice-two.zip 生成(node_modules除外)
+- [ ] T011: legal/PRIVACY.md と TERMS.md 作成(外部通信なし・データ収集なし・医療効果を主張しない)
