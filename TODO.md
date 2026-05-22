@@ -4,7 +4,7 @@
 - [x] T002: 選択肢カードのCRUD(絵文字/ことば、2〜4枚)を chrome.storage.local に保存・読込
 - [x] T003: 子供がカードをタップ→大きく表示して確定する演出
 - [x] T004: 選択肢セットを複数保存・切替(おやつ/あそび 等)
-- [ ] T005: 保護者/子供モード切替を簡易PIN(storage.local)で実装
+- [x] T005: 保護者/子供モード切替を簡易PIN(storage.local)で実装
 - [ ] T006: 起動時に storage.local から全状態を復元
 - [ ] T007: _locales ja/en を chrome.i18n で全UIに適用
 - [ ] T008: Premiumゲート(7日トライアル + Stripe Checkout URL)。無料はセット1つ・最大3枚、Premiumでセット無制限・最大6枚

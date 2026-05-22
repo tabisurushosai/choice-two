@@ -14,6 +14,8 @@ export interface ChoiceSet {
 export interface ChoiceBoardState {
   sets: ChoiceSet[];
   activeSetId: string;
+  mode: ChoiceBoardMode;
+  parentPin: string;
 }
 
 export interface ChoiceConfirmation {
@@ -22,9 +24,12 @@ export interface ChoiceConfirmation {
   confirmationLabel: string | null;
 }
 
+export type ChoiceBoardMode = "parent" | "child";
+
 export const choiceBoardStorageKey = "choiceBoardState";
 export const minChoiceCards = 2;
 export const maxChoiceCards = 4;
+export const defaultParentPin = "1234";
 
 interface LegacyChoiceBoardState {
   choices: ChoiceCard[];
@@ -40,6 +45,8 @@ export function createInitialChoiceBoardState(): ChoiceBoardState {
   return {
     sets: [createDefaultChoiceSet("set-1", "おやつ")],
     activeSetId: "set-1",
+    mode: "parent",
+    parentPin: defaultParentPin,
   };
 }
 
@@ -61,6 +68,8 @@ export function createChoiceBoardState(
     return {
       sets: [legacySet],
       activeSetId: legacySet.id,
+      mode: "parent",
+      parentPin: defaultParentPin,
     };
   }
 
@@ -72,6 +81,41 @@ export function createChoiceBoardState(
   return {
     sets,
     activeSetId,
+    mode: normalizeChoiceBoardMode(savedState.mode),
+    parentPin: normalizeParentPin(savedState.parentPin),
+  };
+}
+
+export function switchToChildMode(state: ChoiceBoardState): ChoiceBoardState {
+  return {
+    ...state,
+    mode: "child",
+  };
+}
+
+export function canUnlockParentMode(state: ChoiceBoardState, pin: string): boolean {
+  return normalizeParentPin(pin) === state.parentPin;
+}
+
+export function switchToParentMode(
+  state: ChoiceBoardState,
+  pin: string,
+): ChoiceBoardState {
+  if (!canUnlockParentMode(state, pin)) return state;
+
+  return {
+    ...state,
+    mode: "parent",
+  };
+}
+
+export function updateParentPin(
+  state: ChoiceBoardState,
+  pin: string,
+): ChoiceBoardState {
+  return {
+    ...state,
+    parentPin: normalizeParentPin(pin),
   };
 }
 
@@ -200,6 +244,7 @@ export function addChoiceSet(state: ChoiceBoardState): ChoiceBoardState {
   const newSet = createDefaultChoiceSet(newSetId, createChoiceSetName(state.sets.length + 1));
 
   return {
+    ...state,
     sets: [...state.sets, newSet],
     activeSetId: newSet.id,
   };
@@ -289,6 +334,17 @@ function normalizeLabel(label: string): string {
 
 function normalizeChoiceSetName(name: string): string {
   return name.trim() || "セット";
+}
+
+function normalizeChoiceBoardMode(mode: unknown): ChoiceBoardMode {
+  return mode === "child" ? "child" : "parent";
+}
+
+function normalizeParentPin(pin: unknown): string {
+  if (typeof pin !== "string") return defaultParentPin;
+
+  const digits = pin.replace(/\D/g, "").slice(0, 8);
+  return digits || defaultParentPin;
 }
 
 function createChoiceId(choices: ChoiceCard[]): string {

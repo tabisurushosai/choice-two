@@ -5,6 +5,7 @@ import {
   canRemoveChoice,
   ChoiceBoardState,
   ChoiceCard,
+  canUnlockParentMode,
   choiceBoardStorageKey,
   createChoiceBoardState,
   createInitialChoiceBoardState,
@@ -14,7 +15,10 @@ import {
   minChoiceCards,
   removeChoice,
   selectChoice,
+  switchToChildMode,
+  switchToParentMode,
   switchChoiceSet,
+  updateParentPin,
   updateChoice,
   updateChoiceSetName,
 } from "./core/choiceBoard";
@@ -23,6 +27,7 @@ import { store } from "./storage";
 const app = document.querySelector<HTMLDivElement>("#app");
 
 let state = createInitialChoiceBoardState();
+let parentUnlockError = "";
 
 function renderChoiceCard(
   choice: ChoiceCard,
@@ -87,8 +92,75 @@ function render(): void {
     choices.append(renderChoiceCard(choice, activeSet.selectedChoiceId));
   }
 
-  shell.append(renderSetSwitcher(state), choices, renderConfirmation(state), renderEditor(state));
+  shell.append(renderModeControls(state));
+
+  if (state.mode === "parent") {
+    shell.append(renderSetSwitcher(state));
+  }
+
+  shell.append(choices, renderConfirmation(state));
+
+  if (state.mode === "parent") {
+    shell.append(renderEditor(state));
+  }
+
   app.replaceChildren(shell);
+}
+
+function renderModeControls(stateToRender: ChoiceBoardState): HTMLElement {
+  const controls = document.createElement("section");
+  controls.className = "mode-controls";
+  controls.setAttribute("aria-label", "モード切替");
+
+  const label = document.createElement("div");
+  label.className = "mode-controls__label";
+  label.textContent = stateToRender.mode === "parent" ? "保護者モード" : "子供モード";
+
+  if (stateToRender.mode === "parent") {
+    const pinInput = document.createElement("input");
+    pinInput.className = "mode-controls__pin";
+    pinInput.dataset.action = "update-pin";
+    pinInput.inputMode = "numeric";
+    pinInput.type = "password";
+    pinInput.value = stateToRender.parentPin;
+    pinInput.maxLength = 8;
+    pinInput.setAttribute("aria-label", "保護者PIN");
+
+    const childModeButton = document.createElement("button");
+    childModeButton.type = "button";
+    childModeButton.className = "mode-controls__button";
+    childModeButton.dataset.action = "switch-child";
+    childModeButton.textContent = "子供モード";
+
+    controls.append(label, pinInput, childModeButton);
+    return controls;
+  }
+
+  const unlockInput = document.createElement("input");
+  unlockInput.className = "mode-controls__pin";
+  unlockInput.dataset.action = "unlock-pin";
+  unlockInput.inputMode = "numeric";
+  unlockInput.type = "password";
+  unlockInput.maxLength = 8;
+  unlockInput.setAttribute("aria-label", "保護者モードに戻るPIN");
+
+  const parentModeButton = document.createElement("button");
+  parentModeButton.type = "button";
+  parentModeButton.className = "mode-controls__button";
+  parentModeButton.dataset.action = "unlock-parent";
+  parentModeButton.textContent = "保護者";
+
+  controls.append(label, unlockInput, parentModeButton);
+
+  if (parentUnlockError) {
+    const error = document.createElement("p");
+    error.className = "mode-controls__error";
+    error.setAttribute("role", "status");
+    error.textContent = parentUnlockError;
+    controls.append(error);
+  }
+
+  return controls;
 }
 
 function renderSetSwitcher(stateToRender: ChoiceBoardState): HTMLElement {
@@ -196,6 +268,7 @@ function renderEditor(stateToRender: ChoiceBoardState): HTMLElement {
 
 async function saveState(nextState: ChoiceBoardState): Promise<void> {
   state = nextState;
+  parentUnlockError = "";
   render();
   await store.set(choiceBoardStorageKey, state);
 }
@@ -212,6 +285,48 @@ function injectStyles(): void {
     .choice-board {
       display: grid;
       gap: 12px;
+    }
+
+    .mode-controls {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 92px auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .mode-controls__label {
+      color: #102a43;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .mode-controls__pin,
+    .mode-controls__button {
+      box-sizing: border-box;
+      min-height: 34px;
+      border: 1px solid #bcccdc;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #102a43;
+      font: inherit;
+    }
+
+    .mode-controls__pin {
+      min-width: 0;
+      width: 100%;
+    }
+
+    .mode-controls__button {
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .mode-controls__error {
+      grid-column: 1 / -1;
+      margin: 0;
+      color: #b42318;
+      font-size: 12px;
+      font-weight: 700;
     }
 
     .choice-set {
@@ -426,6 +541,25 @@ app?.addEventListener("click", async (event) => {
   if (!(target instanceof Element)) return;
 
   const actionButton = target.closest<HTMLButtonElement>("[data-action]");
+  if (actionButton?.dataset.action === "switch-child") {
+    await saveState(switchToChildMode(state));
+    return;
+  }
+
+  if (actionButton?.dataset.action === "unlock-parent") {
+    const pinInput = app.querySelector<HTMLInputElement>("[data-action='unlock-pin']");
+    const pin = pinInput?.value ?? "";
+
+    if (!canUnlockParentMode(state, pin)) {
+      parentUnlockError = "PINがちがいます";
+      render();
+      return;
+    }
+
+    await saveState(switchToParentMode(state, pin));
+    return;
+  }
+
   if (actionButton?.dataset.action === "add-set") {
     await saveState(addChoiceSet(state));
     return;
@@ -459,6 +593,11 @@ app?.addEventListener("change", async (event) => {
   }
 
   if (!(target instanceof HTMLInputElement)) return;
+
+  if (target.dataset.action === "update-pin") {
+    await saveState(updateParentPin(state, target.value));
+    return;
+  }
 
   if (target.dataset.action === "rename-set") {
     const setId = target.dataset.setId;
