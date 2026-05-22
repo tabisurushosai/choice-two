@@ -26,6 +26,17 @@ export interface ChoiceConfirmation {
 
 export type ChoiceBoardMode = "parent" | "child";
 
+export interface ChoiceBoardText {
+  defaultChoices: ChoiceCard[];
+  firstSetName: string;
+  secondSetName: string;
+  setNamePrefix: string;
+  fallbackChoiceLabel: string;
+  fallbackChoiceSetName: string;
+  promptLabel: string;
+  confirmationTemplate: string;
+}
+
 export const choiceBoardStorageKey = "choiceBoardState";
 export const minChoiceCards = 2;
 export const maxChoiceCards = 4;
@@ -43,9 +54,22 @@ const defaultChoices: ChoiceCard[] = [
   { id: "banana", emoji: "🍌", label: "バナナ" },
 ];
 
-export function createInitialChoiceBoardState(): ChoiceBoardState {
+export const defaultChoiceBoardText: ChoiceBoardText = {
+  defaultChoices,
+  firstSetName: "おやつ",
+  secondSetName: "あそび",
+  setNamePrefix: "セット",
+  fallbackChoiceLabel: "えらぶ",
+  fallbackChoiceSetName: "セット",
+  promptLabel: "カードをえらんでね",
+  confirmationTemplate: "{label} にする",
+};
+
+export function createInitialChoiceBoardState(
+  text: ChoiceBoardText = defaultChoiceBoardText,
+): ChoiceBoardState {
   return {
-    sets: [createDefaultChoiceSet("set-1", "おやつ")],
+    sets: [createDefaultChoiceSet("set-1", text.firstSetName, text)],
     activeSetId: "set-1",
     mode: "parent",
     parentPin: defaultParentPin,
@@ -54,17 +78,19 @@ export function createInitialChoiceBoardState(): ChoiceBoardState {
 
 export function createChoiceBoardState(
   savedState: StoredChoiceBoardState | null,
+  text: ChoiceBoardText = defaultChoiceBoardText,
 ): ChoiceBoardState {
   if (!savedState) {
-    return createInitialChoiceBoardState();
+    return createInitialChoiceBoardState(text);
   }
 
   if ("choices" in savedState) {
     const legacySet = createChoiceSet(
       "set-1",
-      "おやつ",
+      text.firstSetName,
       savedState.choices,
       savedState.selectedChoiceId,
+      text,
     );
 
     return {
@@ -75,7 +101,7 @@ export function createChoiceBoardState(
     };
   }
 
-  const sets = normalizeChoiceSets(savedState.sets);
+  const sets = normalizeChoiceSets(savedState.sets, text);
   const activeSetId = sets.some((set) => set.id === savedState.activeSetId)
     ? savedState.activeSetId
     : sets[0].id;
@@ -140,13 +166,18 @@ export function getSelectedChoice(state: ChoiceBoardState): ChoiceCard | null {
   return activeSet.choices.find((choice) => choice.id === activeSet.selectedChoiceId) ?? null;
 }
 
-export function getChoiceConfirmation(state: ChoiceBoardState): ChoiceConfirmation {
+export function getChoiceConfirmation(
+  state: ChoiceBoardState,
+  text: ChoiceBoardText = defaultChoiceBoardText,
+): ChoiceConfirmation {
   const selectedChoice = getSelectedChoice(state);
 
   return {
     selectedChoice,
-    promptLabel: "カードをえらんでね",
-    confirmationLabel: selectedChoice ? `${selectedChoice.label} にする` : null,
+    promptLabel: text.promptLabel,
+    confirmationLabel: selectedChoice
+      ? text.confirmationTemplate.replace("{label}", selectedChoice.label)
+      : null,
   };
 }
 
@@ -161,6 +192,7 @@ export function canRemoveChoice(state: ChoiceBoardState): boolean {
 export function addChoice(
   state: ChoiceBoardState,
   choice: Pick<ChoiceCard, "emoji" | "label">,
+  text: ChoiceBoardText = defaultChoiceBoardText,
 ): ChoiceBoardState {
   if (!canAddChoice(state)) return state;
   const activeSet = getActiveChoiceSet(state);
@@ -172,7 +204,7 @@ export function addChoice(
       {
         id: createChoiceId(activeSet.choices),
         emoji: normalizeEmoji(choice.emoji),
-        label: normalizeLabel(choice.label),
+        label: normalizeLabel(choice.label, text),
       },
     ],
   });
@@ -182,6 +214,7 @@ export function updateChoice(
   state: ChoiceBoardState,
   choiceId: string,
   updates: Pick<ChoiceCard, "emoji" | "label">,
+  text: ChoiceBoardText = defaultChoiceBoardText,
 ): ChoiceBoardState {
   const activeSet = getActiveChoiceSet(state);
 
@@ -194,9 +227,10 @@ export function updateChoice(
         return {
           ...choice,
           emoji: normalizeEmoji(updates.emoji),
-          label: normalizeLabel(updates.label),
+          label: normalizeLabel(updates.label, text),
         };
       }),
+      text,
     ),
   });
 }
@@ -241,9 +275,16 @@ export function switchChoiceSet(
   };
 }
 
-export function addChoiceSet(state: ChoiceBoardState): ChoiceBoardState {
+export function addChoiceSet(
+  state: ChoiceBoardState,
+  text: ChoiceBoardText = defaultChoiceBoardText,
+): ChoiceBoardState {
   const newSetId = createChoiceSetId(state.sets);
-  const newSet = createDefaultChoiceSet(newSetId, createChoiceSetName(state.sets.length + 1));
+  const newSet = createDefaultChoiceSet(
+    newSetId,
+    createChoiceSetName(state.sets.length + 1, text),
+    text,
+  );
 
   return {
     ...state,
@@ -256,46 +297,58 @@ export function updateChoiceSetName(
   state: ChoiceBoardState,
   setId: string,
   name: string,
+  text: ChoiceBoardText = defaultChoiceBoardText,
 ): ChoiceBoardState {
   return {
     ...state,
     sets: state.sets.map((set) =>
-      set.id === setId ? { ...set, name: normalizeChoiceSetName(name) } : set,
+      set.id === setId ? { ...set, name: normalizeChoiceSetName(name, text) } : set,
     ),
   };
 }
 
-function normalizeChoices(choices: ChoiceCard[]): ChoiceCard[] {
+function normalizeChoices(
+  choices: ChoiceCard[],
+  text: ChoiceBoardText = defaultChoiceBoardText,
+): ChoiceCard[] {
   const normalized = choices
     .slice(0, maxChoiceCards)
     .map((choice) => ({
       id: choice.id,
       emoji: normalizeEmoji(choice.emoji),
-      label: normalizeLabel(choice.label),
+      label: normalizeLabel(choice.label, text),
     }));
 
   if (normalized.length >= minChoiceCards) {
     return normalized;
   }
 
-  return defaultChoices.map((choice) => ({ ...choice }));
+  return text.defaultChoices.map((choice) => ({ ...choice }));
 }
 
-function normalizeChoiceSets(sets: ChoiceSet[]): ChoiceSet[] {
+function normalizeChoiceSets(
+  sets: ChoiceSet[],
+  text: ChoiceBoardText = defaultChoiceBoardText,
+): ChoiceSet[] {
   const normalized = sets.map((set, index) =>
     createChoiceSet(
       set.id || `set-${index + 1}`,
-      set.name || createChoiceSetName(index + 1),
+      set.name || createChoiceSetName(index + 1, text),
       set.choices,
       set.selectedChoiceId,
+      text,
     ),
   );
 
-  return normalized.length > 0 ? normalized : createInitialChoiceBoardState().sets;
+  return normalized.length > 0 ? normalized : createInitialChoiceBoardState(text).sets;
 }
 
-function createDefaultChoiceSet(id: string, name: string): ChoiceSet {
-  return createChoiceSet(id, name, defaultChoices, null);
+function createDefaultChoiceSet(
+  id: string,
+  name: string,
+  text: ChoiceBoardText = defaultChoiceBoardText,
+): ChoiceSet {
+  return createChoiceSet(id, name, text.defaultChoices, null, text);
 }
 
 function createChoiceSet(
@@ -303,12 +356,13 @@ function createChoiceSet(
   name: string,
   choicesToNormalize: ChoiceCard[],
   selectedChoiceId: string | null,
+  text: ChoiceBoardText = defaultChoiceBoardText,
 ): ChoiceSet {
-  const choices = normalizeChoices(choicesToNormalize);
+  const choices = normalizeChoices(choicesToNormalize, text);
 
   return {
     id,
-    name: normalizeChoiceSetName(name),
+    name: normalizeChoiceSetName(name, text),
     choices,
     selectedChoiceId: choices.some((choice) => choice.id === selectedChoiceId)
       ? selectedChoiceId
@@ -330,12 +384,18 @@ function normalizeEmoji(emoji: string): string {
   return emoji.trim() || "❓";
 }
 
-function normalizeLabel(label: string): string {
-  return label.trim() || "えらぶ";
+function normalizeLabel(
+  label: string,
+  text: ChoiceBoardText = defaultChoiceBoardText,
+): string {
+  return label.trim() || text.fallbackChoiceLabel;
 }
 
-function normalizeChoiceSetName(name: string): string {
-  return name.trim() || "セット";
+function normalizeChoiceSetName(
+  name: string,
+  text: ChoiceBoardText = defaultChoiceBoardText,
+): string {
+  return name.trim() || text.fallbackChoiceSetName;
 }
 
 function normalizeChoiceBoardMode(mode: unknown): ChoiceBoardMode {
@@ -375,9 +435,12 @@ function createChoiceSetId(sets: ChoiceSet[]): string {
   return id;
 }
 
-function createChoiceSetName(index: number): string {
-  if (index === 1) return "おやつ";
-  if (index === 2) return "あそび";
+function createChoiceSetName(
+  index: number,
+  text: ChoiceBoardText = defaultChoiceBoardText,
+): string {
+  if (index === 1) return text.firstSetName;
+  if (index === 2) return text.secondSetName;
 
-  return `セット ${index}`;
+  return `${text.setNamePrefix} ${index}`;
 }

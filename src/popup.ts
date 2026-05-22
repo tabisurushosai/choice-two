@@ -5,6 +5,7 @@ import {
   canRemoveChoice,
   ChoiceBoardState,
   ChoiceCard,
+  ChoiceBoardText,
   canUnlockParentMode,
   choiceBoardStorageKey,
   createChoiceBoardState,
@@ -26,9 +27,31 @@ import {
 import { store } from "./storage";
 
 const app = document.querySelector<HTMLDivElement>("#app");
+const messages = createLocalizedChoiceBoardText();
 
-let state = createInitialChoiceBoardState();
+let state = createInitialChoiceBoardState(messages);
 let parentUnlockError = "";
+
+function t(key: string, substitutions?: string | string[]): string {
+  const message = chrome.i18n.getMessage(key, substitutions);
+  return message || key;
+}
+
+function createLocalizedChoiceBoardText(): ChoiceBoardText {
+  return {
+    defaultChoices: [
+      { id: "apple", emoji: "🍎", label: t("defaultChoiceApple") },
+      { id: "banana", emoji: "🍌", label: t("defaultChoiceBanana") },
+    ],
+    firstSetName: t("defaultSetSnacks"),
+    secondSetName: t("defaultSetPlay"),
+    setNamePrefix: t("defaultSetPrefix"),
+    fallbackChoiceLabel: t("fallbackChoiceLabel"),
+    fallbackChoiceSetName: t("fallbackChoiceSetName"),
+    promptLabel: t("confirmationPrompt"),
+    confirmationTemplate: t("confirmationTemplate", "{label}"),
+  };
+}
 
 function renderChoiceCard(
   choice: ChoiceCard,
@@ -55,7 +78,7 @@ function renderChoiceCard(
 }
 
 function renderConfirmation(stateToRender: ChoiceBoardState): HTMLElement {
-  const confirmationModel = getChoiceConfirmation(stateToRender);
+  const confirmationModel = getChoiceConfirmation(stateToRender, messages);
   const confirmation = document.createElement("section");
   confirmation.className = confirmationModel.selectedChoice
     ? "confirmation confirmation--selected"
@@ -111,11 +134,12 @@ function render(): void {
 function renderModeControls(stateToRender: ChoiceBoardState): HTMLElement {
   const controls = document.createElement("section");
   controls.className = "mode-controls";
-  controls.setAttribute("aria-label", "モード切替");
+  controls.setAttribute("aria-label", t("modeControlsAria"));
 
   const label = document.createElement("div");
   label.className = "mode-controls__label";
-  label.textContent = stateToRender.mode === "parent" ? "保護者モード" : "子供モード";
+  label.textContent =
+    stateToRender.mode === "parent" ? t("parentModeLabel") : t("childModeLabel");
 
   if (stateToRender.mode === "parent") {
     const pinInput = document.createElement("input");
@@ -125,13 +149,13 @@ function renderModeControls(stateToRender: ChoiceBoardState): HTMLElement {
     pinInput.type = "password";
     pinInput.value = stateToRender.parentPin;
     pinInput.maxLength = 8;
-    pinInput.setAttribute("aria-label", "保護者PIN");
+    pinInput.setAttribute("aria-label", t("parentPinAria"));
 
     const childModeButton = document.createElement("button");
     childModeButton.type = "button";
     childModeButton.className = "mode-controls__button";
     childModeButton.dataset.action = "switch-child";
-    childModeButton.textContent = "子供モード";
+    childModeButton.textContent = t("childModeButton");
 
     controls.append(label, pinInput, childModeButton);
     return controls;
@@ -143,13 +167,13 @@ function renderModeControls(stateToRender: ChoiceBoardState): HTMLElement {
   unlockInput.inputMode = "numeric";
   unlockInput.type = "password";
   unlockInput.maxLength = 8;
-  unlockInput.setAttribute("aria-label", "保護者モードに戻るPIN");
+  unlockInput.setAttribute("aria-label", t("unlockParentPinAria"));
 
   const parentModeButton = document.createElement("button");
   parentModeButton.type = "button";
   parentModeButton.className = "mode-controls__button";
   parentModeButton.dataset.action = "unlock-parent";
-  parentModeButton.textContent = "保護者";
+  parentModeButton.textContent = t("parentModeButton");
 
   controls.append(label, unlockInput, parentModeButton);
 
@@ -168,16 +192,16 @@ function renderSetSwitcher(stateToRender: ChoiceBoardState): HTMLElement {
   const activeSet = getActiveChoiceSet(stateToRender);
   const switcher = document.createElement("section");
   switcher.className = "choice-set";
-  switcher.setAttribute("aria-label", "セット切替");
+  switcher.setAttribute("aria-label", t("setSwitcherAria"));
 
   const label = document.createElement("label");
   label.className = "choice-set__label";
-  label.textContent = "セット";
+  label.textContent = t("setLabel");
 
   const select = document.createElement("select");
   select.className = "choice-set__select";
   select.dataset.action = "switch-set";
-  select.setAttribute("aria-label", "表示するセット");
+  select.setAttribute("aria-label", t("setSelectAria"));
 
   for (const set of stateToRender.sets) {
     const option = document.createElement("option");
@@ -193,13 +217,13 @@ function renderSetSwitcher(stateToRender: ChoiceBoardState): HTMLElement {
   nameInput.dataset.setId = activeSet.id;
   nameInput.value = activeSet.name;
   nameInput.maxLength = 24;
-  nameInput.setAttribute("aria-label", "セット名");
+  nameInput.setAttribute("aria-label", t("setNameAria"));
 
   const addButton = document.createElement("button");
   addButton.type = "button";
   addButton.className = "choice-set__add";
   addButton.dataset.action = "add-set";
-  addButton.textContent = "セット追加";
+  addButton.textContent = t("addSetButton");
 
   switcher.append(label, select, nameInput, addButton);
   return switcher;
@@ -209,11 +233,11 @@ function renderEditor(stateToRender: ChoiceBoardState): HTMLElement {
   const activeSet = getActiveChoiceSet(stateToRender);
   const editor = document.createElement("section");
   editor.className = "choice-editor";
-  editor.setAttribute("aria-label", "カード編集");
+  editor.setAttribute("aria-label", t("cardEditorAria"));
 
   const heading = document.createElement("h4");
   heading.className = "choice-editor__heading";
-  heading.textContent = "カード編集";
+  heading.textContent = t("cardEditorHeading");
 
   const list = document.createElement("div");
   list.className = "choice-editor__list";
@@ -229,7 +253,7 @@ function renderEditor(stateToRender: ChoiceBoardState): HTMLElement {
     emojiInput.dataset.field = "emoji";
     emojiInput.value = choice.emoji;
     emojiInput.maxLength = 8;
-    emojiInput.setAttribute("aria-label", `${choice.label}の絵文字`);
+    emojiInput.setAttribute("aria-label", t("choiceEmojiAria", choice.label));
 
     const labelInput = document.createElement("input");
     labelInput.className = "choice-editor__label-input";
@@ -238,14 +262,14 @@ function renderEditor(stateToRender: ChoiceBoardState): HTMLElement {
     labelInput.dataset.field = "label";
     labelInput.value = choice.label;
     labelInput.maxLength = 24;
-    labelInput.setAttribute("aria-label", `${choice.label}のことば`);
+    labelInput.setAttribute("aria-label", t("choiceLabelAria", choice.label));
 
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "choice-editor__delete";
     deleteButton.dataset.action = "delete";
     deleteButton.dataset.choiceId = choice.id;
-    deleteButton.textContent = "削除";
+    deleteButton.textContent = t("deleteButton");
     deleteButton.disabled = !canRemoveChoice(stateToRender);
 
     row.append(emojiInput, labelInput, deleteButton);
@@ -256,12 +280,12 @@ function renderEditor(stateToRender: ChoiceBoardState): HTMLElement {
   addButton.type = "button";
   addButton.className = "choice-editor__add";
   addButton.dataset.action = "add";
-  addButton.textContent = "カードを追加";
+  addButton.textContent = t("addCardButton");
   addButton.disabled = !canAddChoice(stateToRender);
 
   const note = document.createElement("p");
   note.className = "choice-editor__note";
-  note.textContent = `${minChoiceCards}〜${maxChoiceCards}枚まで`;
+  note.textContent = t("cardLimit", [String(minChoiceCards), String(maxChoiceCards)]);
 
   editor.append(heading, list, addButton, note);
   return editor;
@@ -552,7 +576,7 @@ app?.addEventListener("click", async (event) => {
     const pin = pinInput?.value ?? "";
 
     if (!canUnlockParentMode(state, pin)) {
-      parentUnlockError = "PINがちがいます";
+      parentUnlockError = t("pinError");
       render();
       return;
     }
@@ -562,12 +586,12 @@ app?.addEventListener("click", async (event) => {
   }
 
   if (actionButton?.dataset.action === "add-set") {
-    await saveState(addChoiceSet(state));
+    await saveState(addChoiceSet(state, messages));
     return;
   }
 
   if (actionButton?.dataset.action === "add") {
-    await saveState(addChoice(state, { emoji: "⭐", label: "あたらしい" }));
+    await saveState(addChoice(state, { emoji: "⭐", label: t("newChoiceLabel") }, messages));
     return;
   }
 
@@ -604,7 +628,7 @@ app?.addEventListener("change", async (event) => {
     const setId = target.dataset.setId;
     if (!setId) return;
 
-    await saveState(updateChoiceSetName(state, setId, target.value));
+    await saveState(updateChoiceSetName(state, setId, target.value, messages));
     return;
   }
 
@@ -619,12 +643,13 @@ app?.addEventListener("change", async (event) => {
 
   const nextEmoji = target.dataset.field === "emoji" ? target.value : choice.emoji;
   const nextLabel = target.dataset.field === "label" ? target.value : choice.label;
-  await saveState(updateChoice(state, choiceId, { emoji: nextEmoji, label: nextLabel }));
+  await saveState(updateChoice(state, choiceId, { emoji: nextEmoji, label: nextLabel }, messages));
 });
 
 async function initialize(): Promise<void> {
   const savedState = await store.get<StoredChoiceBoardState>(choiceBoardStorageKey);
-  state = createChoiceBoardState(savedState);
+  document.title = t("extName");
+  state = createChoiceBoardState(savedState, messages);
   render();
 }
 
