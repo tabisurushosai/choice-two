@@ -48,5 +48,7 @@
   "cardDeletedStatus": { "message": "Deleted $LABEL$", "placeholders": { "label": { "content": "$1" } } },
   "addCardButton": { "message": "Add card" },
   "newChoiceLabel": { "message": "New choice" },
-  "cardLimit": { "message": "$MIN$-$MAX$ cards", "placeholders": { "min": { "content": "$1" }, "max": { "content": "$2" } } }
+  "cardLimit": { "message": "$MIN$-$MAX$ cards", "placeholders": { "min": { "content": "$1" }, "max": { "content": "$2" } } },
+  "storageSaveError": { "message": "Could not save. You can keep using this screen, but changes may not be kept next time." },
+  "storageLoadError": { "message": "Could not read saved data. Showing a safe initial board." }
 }

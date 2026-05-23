@@ -48,5 +48,7 @@
   "cardDeletedStatus": { "message": "$LABEL$を削除しました", "placeholders": { "label": { "content": "$1" } } },
   "addCardButton": { "message": "カードを追加" },
   "newChoiceLabel": { "message": "あたらしい" },
-  "cardLimit": { "message": "$MIN$〜$MAX$枚まで", "placeholders": { "min": { "content": "$1" }, "max": { "content": "$2" } } }
+  "cardLimit": { "message": "$MIN$〜$MAX$枚まで", "placeholders": { "min": { "content": "$1" }, "max": { "content": "$2" } } },
+  "storageSaveError": { "message": "保存できませんでした。この画面では続けられますが、次回に残らないことがあります。" },
+  "storageLoadError": { "message": "保存データを読み込めませんでした。安全な初期状態で表示しています。" }
 }

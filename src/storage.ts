@@ -7,14 +7,42 @@ export interface Store {
 }
 export const store: Store = {
   get<T>(key: string) {
-    return new Promise<T | null>((res) => {
-      chrome.storage.local.get(key, (o) => res((o[key] as T | undefined) ?? null));
+    return new Promise<T | null>((res, rej) => {
+      chrome.storage.local.get(key, (o) => {
+        const error = chrome.runtime.lastError;
+        if (error) {
+          rej(new Error(error.message));
+          return;
+        }
+
+        res((o[key] as T | undefined) ?? null);
+      });
     });
   },
   set<T>(key: string, value: T) {
-    return new Promise<void>((res) => chrome.storage.local.set({ [key]: value }, () => res()));
+    return new Promise<void>((res, rej) =>
+      chrome.storage.local.set({ [key]: value }, () => {
+        const error = chrome.runtime.lastError;
+        if (error) {
+          rej(new Error(error.message));
+          return;
+        }
+
+        res();
+      }),
+    );
   },
   remove(key: string) {
-    return new Promise<void>((res) => chrome.storage.local.remove(key, () => res()));
+    return new Promise<void>((res, rej) =>
+      chrome.storage.local.remove(key, () => {
+        const error = chrome.runtime.lastError;
+        if (error) {
+          rej(new Error(error.message));
+          return;
+        }
+
+        res();
+      }),
+    );
   },
 };

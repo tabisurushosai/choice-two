@@ -107,14 +107,14 @@ export function createInitialChoiceBoardState(
 }
 
 export function createChoiceBoardState(
-  savedState: StoredChoiceBoardState | null,
+  savedState: unknown,
   text: ChoiceBoardText = defaultChoiceBoardText,
 ): ChoiceBoardState {
-  if (!savedState) {
+  if (!isRecord(savedState)) {
     return createInitialChoiceBoardState(text);
   }
 
-  if ("choices" in savedState) {
+  if (Array.isArray(savedState.choices)) {
     const premium = createFreePremiumState();
     const legacySet = createChoiceSet(
       "set-1",
@@ -134,6 +134,10 @@ export function createChoiceBoardState(
     };
   }
 
+  if (!Array.isArray(savedState.sets)) {
+    return createInitialChoiceBoardState(text);
+  }
+
   const premium = normalizePremiumState(savedState);
   const hasPremium = hasPremiumAccess({ premium });
   const sets = normalizeChoiceSets(
@@ -143,7 +147,7 @@ export function createChoiceBoardState(
     hasPremium ? null : freeChoiceSetLimit,
   );
   const activeSetId = sets.some((set) => set.id === savedState.activeSetId)
-    ? savedState.activeSetId
+    ? String(savedState.activeSetId)
     : sets[0].id;
 
   return {
@@ -497,17 +501,19 @@ export function updateChoiceSetName(
 }
 
 function normalizeChoices(
-  choices: ChoiceCard[],
+  choices: unknown,
   text: ChoiceBoardText = defaultChoiceBoardText,
   maxCards = maxChoiceCards,
 ): ChoiceCard[] {
-  const normalized = choices
+  const normalized = (Array.isArray(choices) ? choices : [])
     .slice(0, maxCards)
+    .filter(isRecord)
     .map((choice) => ({
-      id: choice.id,
+      id: normalizeId(choice.id),
       emoji: normalizeEmoji(choice.emoji),
       label: normalizeLabel(choice.label, text),
-    }));
+    }))
+    .filter((choice) => choice.id !== "");
 
   if (normalized.length >= minChoiceCards) {
     return normalized;
@@ -517,18 +523,19 @@ function normalizeChoices(
 }
 
 function normalizeChoiceSets(
-  sets: ChoiceSet[],
+  sets: unknown,
   text: ChoiceBoardText = defaultChoiceBoardText,
   maxCards = maxChoiceCards,
   maxSets: number | null = null,
 ): ChoiceSet[] {
-  const setsToNormalize = maxSets === null ? sets : sets.slice(0, maxSets);
+  const validSets = (Array.isArray(sets) ? sets : []).filter(isRecord);
+  const setsToNormalize = maxSets === null ? validSets : validSets.slice(0, maxSets);
   const normalized = setsToNormalize.map((set, index) =>
     createChoiceSet(
-      set.id || `set-${index + 1}`,
-      set.name || createChoiceSetName(index + 1, text),
+      normalizeId(set.id) || `set-${index + 1}`,
+      typeof set.name === "string" ? set.name : createChoiceSetName(index + 1, text),
       set.choices,
-      set.selectedChoiceId,
+      typeof set.selectedChoiceId === "string" ? set.selectedChoiceId : null,
       text,
       maxCards,
     ),
@@ -548,8 +555,8 @@ function createDefaultChoiceSet(
 function createChoiceSet(
   id: string,
   name: string,
-  choicesToNormalize: ChoiceCard[],
-  selectedChoiceId: string | null,
+  choicesToNormalize: unknown,
+  selectedChoiceId: unknown,
   text: ChoiceBoardText = defaultChoiceBoardText,
   maxCards = maxChoiceCards,
 ): ChoiceSet {
@@ -559,9 +566,11 @@ function createChoiceSet(
     id,
     name: normalizeChoiceSetName(name, text),
     choices,
-    selectedChoiceId: choices.some((choice) => choice.id === selectedChoiceId)
-      ? selectedChoiceId
-      : null,
+    selectedChoiceId:
+      typeof selectedChoiceId === "string" &&
+      choices.some((choice) => choice.id === selectedChoiceId)
+        ? selectedChoiceId
+        : null,
   };
 }
 
@@ -575,22 +584,38 @@ function updateActiveChoiceSet(
   };
 }
 
-function normalizeEmoji(emoji: string): string {
+function normalizeEmoji(emoji: unknown): string {
+  if (typeof emoji !== "string") return "❓";
+
   return emoji.trim() || "❓";
 }
 
 function normalizeLabel(
-  label: string,
+  label: unknown,
   text: ChoiceBoardText = defaultChoiceBoardText,
 ): string {
+  if (typeof label !== "string") return text.fallbackChoiceLabel;
+
   return label.trim() || text.fallbackChoiceLabel;
 }
 
 function normalizeChoiceSetName(
-  name: string,
+  name: unknown,
   text: ChoiceBoardText = defaultChoiceBoardText,
 ): string {
+  if (typeof name !== "string") return text.fallbackChoiceSetName;
+
   return name.trim() || text.fallbackChoiceSetName;
+}
+
+function normalizeId(id: unknown): string {
+  if (typeof id !== "string") return "";
+
+  return id.trim();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
 }
 
 function normalizeChoiceBoardMode(mode: unknown): ChoiceBoardMode {

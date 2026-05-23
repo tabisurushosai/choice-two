@@ -40,6 +40,7 @@ const messages = createLocalizedChoiceBoardText();
 
 let state = createInitialChoiceBoardState(messages);
 let parentUnlockError = "";
+let storageStatus = "";
 let pendingChoiceFocusId: string | null = null;
 let pendingDeleteChoiceId: string | null = null;
 let lastRemovedChoice: RemovedChoiceSnapshot | null = null;
@@ -153,6 +154,10 @@ function render(): void {
 
   shell.append(renderModeControls(state));
 
+  if (storageStatus) {
+    shell.append(renderStorageStatus(storageStatus));
+  }
+
   if (state.mode === "parent") {
     shell.append(renderSetSwitcher(state));
   }
@@ -172,6 +177,14 @@ function render(): void {
       ?.focus();
     pendingChoiceFocusId = null;
   }
+}
+
+function renderStorageStatus(message: string): HTMLElement {
+  const status = document.createElement("p");
+  status.className = "storage-status";
+  status.setAttribute("role", "status");
+  status.textContent = message;
+  return status;
 }
 
 function renderModeControls(stateToRender: ChoiceBoardState): HTMLElement {
@@ -431,9 +444,16 @@ function formatDate(timestamp: number): string {
 async function saveState(nextState: ChoiceBoardState): Promise<void> {
   state = nextState;
   parentUnlockError = "";
+  storageStatus = "";
   pendingDeleteChoiceId = null;
   render();
-  await store.set(choiceBoardStorageKey, state);
+
+  try {
+    await store.set(choiceBoardStorageKey, state);
+  } catch {
+    storageStatus = t("storageSaveError");
+    render();
+  }
 }
 
 function injectStyles(): void {
@@ -505,6 +525,18 @@ function injectStyles(): void {
       color: #8f1d14;
       font-size: 12px;
       font-weight: 700;
+    }
+
+    .storage-status {
+      margin: 0;
+      padding: 8px 10px;
+      border: 1px solid #f3b7ad;
+      border-radius: 12px;
+      background: #fff1f0;
+      color: #8f1d14;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.4;
     }
 
     .choice-set {
@@ -1011,7 +1043,13 @@ app?.addEventListener("change", async (event) => {
 });
 
 async function initialize(): Promise<void> {
-  const savedState = await store.get<StoredChoiceBoardState>(choiceBoardStorageKey);
+  let savedState: StoredChoiceBoardState | null = null;
+  try {
+    savedState = await store.get<StoredChoiceBoardState>(choiceBoardStorageKey);
+  } catch {
+    storageStatus = t("storageLoadError");
+  }
+
   document.title = t("extName");
   state = createChoiceBoardState(savedState, messages);
   render();
