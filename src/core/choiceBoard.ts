@@ -26,6 +26,7 @@ export interface ChoiceConfirmation {
 }
 
 export type ChoiceBoardMode = "parent" | "child";
+export type ChoiceNavigationDirection = "next" | "previous" | "first" | "last";
 export type PremiumStatus = "free" | "trial" | "premium";
 
 export interface PremiumState {
@@ -212,6 +213,26 @@ export function getChoiceConfirmation(
       ? text.confirmationTemplate.replace("{label}", selectedChoice.label)
       : null,
   };
+}
+
+export function getChoiceNavigationTarget(
+  state: ChoiceBoardState,
+  currentChoiceId: string,
+  direction: ChoiceNavigationDirection,
+): string | null {
+  const choices = getActiveChoiceSet(state).choices;
+  if (choices.length === 0) return null;
+
+  const currentIndex = choices.findIndex((choice) => choice.id === currentChoiceId);
+  const index = currentIndex === -1 ? 0 : currentIndex;
+
+  if (direction === "first") return choices[0].id;
+  if (direction === "last") return choices[choices.length - 1].id;
+  if (direction === "previous") {
+    return choices[(index - 1 + choices.length) % choices.length].id;
+  }
+
+  return choices[(index + 1) % choices.length].id;
 }
 
 export function canAddChoice(state: ChoiceBoardState): boolean {

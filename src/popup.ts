@@ -14,6 +14,7 @@ import {
   getActiveChoiceSet,
   getChoiceConfirmation,
   getChoiceCardLimit,
+  getChoiceNavigationTarget,
   getPremiumGate,
   minChoiceCards,
   removeChoice,
@@ -34,6 +35,7 @@ const messages = createLocalizedChoiceBoardText();
 
 let state = createInitialChoiceBoardState(messages);
 let parentUnlockError = "";
+let pendingChoiceFocusId: string | null = null;
 
 function t(key: string, substitutions?: string | string[]): string {
   const message = chrome.i18n.getMessage(key, substitutions);
@@ -65,16 +67,27 @@ function renderChoiceCard(
   button.type = "button";
   button.dataset.choiceId = choice.id;
   button.className = isSelected ? "choice-card choice-card--selected" : "choice-card";
-  button.setAttribute("aria-label", choice.label);
+  button.setAttribute(
+    "aria-label",
+    isSelected ? t("choiceCardSelectedAria", choice.label) : t("choiceCardAria", choice.label),
+  );
   button.setAttribute("aria-pressed", String(isSelected));
 
   const emoji = document.createElement("span");
   emoji.className = "choice-card__emoji";
+  emoji.setAttribute("aria-hidden", "true");
   emoji.textContent = choice.emoji;
 
   const label = document.createElement("span");
   label.className = "choice-card__label";
   label.textContent = choice.label;
+
+  if (isSelected) {
+    const selectedMarker = document.createElement("span");
+    selectedMarker.className = "choice-card__selected-marker";
+    selectedMarker.textContent = t("selectedMarker");
+    button.append(selectedMarker);
+  }
 
   button.append(emoji, label);
   return button;
@@ -115,6 +128,8 @@ function render(): void {
 
   const choices = document.createElement("div");
   choices.className = "choice-board__cards";
+  choices.setAttribute("role", "group");
+  choices.setAttribute("aria-label", t("choiceCardsAria"));
 
   for (const choice of activeSet.choices) {
     choices.append(renderChoiceCard(choice, activeSet.selectedChoiceId));
@@ -134,6 +149,13 @@ function render(): void {
   }
 
   app.replaceChildren(shell);
+
+  if (pendingChoiceFocusId) {
+    Array.from(app.querySelectorAll<HTMLButtonElement>(".choice-card"))
+      .find((card) => card.dataset.choiceId === pendingChoiceFocusId)
+      ?.focus();
+    pendingChoiceFocusId = null;
+  }
 }
 
 function renderModeControls(stateToRender: ChoiceBoardState): HTMLElement {
@@ -428,7 +450,7 @@ function injectStyles(): void {
     .mode-controls__error {
       grid-column: 1 / -1;
       margin: 0;
-      color: #b42318;
+      color: #8f1d14;
       font-size: 12px;
       font-weight: 700;
     }
@@ -487,6 +509,7 @@ function injectStyles(): void {
     }
 
     .choice-card {
+      position: relative;
       display: grid;
       gap: 8px;
       min-height: 132px;
@@ -517,9 +540,24 @@ function injectStyles(): void {
     }
 
     .choice-card--selected {
-      border-color: #4f86f7;
+      border-color: #2457c5;
       background: #eef7ff;
-      box-shadow: 0 6px 0 #c7ddff, 0 0 0 4px #dcecff;
+      box-shadow: 0 6px 0 #b7d1ff, 0 0 0 4px #dcecff;
+    }
+
+    .choice-card__selected-marker {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      min-width: 28px;
+      min-height: 28px;
+      border: 2px solid #2457c5;
+      border-radius: 999px;
+      background: #ffffff;
+      color: #173f98;
+      font-size: 16px;
+      font-weight: 800;
+      line-height: 24px;
     }
 
     .choice-card__emoji {
@@ -541,7 +579,7 @@ function injectStyles(): void {
       border: 3px dashed #e0bd7f;
       border-radius: 22px;
       background: #fffef9;
-      color: #6b7280;
+      color: #4b5563;
       font-size: 18px;
       font-weight: 700;
       place-items: center;
@@ -550,7 +588,7 @@ function injectStyles(): void {
 
     .confirmation--selected {
       border-style: solid;
-      border-color: #73c3a6;
+      border-color: #2f8f6b;
       background: #effbf5;
       animation: confirmation-pop 360ms ease-out both;
     }
@@ -605,7 +643,7 @@ function injectStyles(): void {
     }
 
     .premium-gate__limits {
-      color: #52606d;
+      color: #3f5368;
     }
 
     .premium-gate__actions {
@@ -711,8 +749,16 @@ function injectStyles(): void {
 
     .choice-editor__note {
       margin: 0;
-      color: #627d98;
+      color: #455f79;
       font-size: 12px;
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    a:focus-visible {
+      outline: 3px solid #2457c5;
+      outline-offset: 2px;
     }
 
     @media (prefers-reduced-motion: reduce) {
@@ -777,6 +823,33 @@ app?.addEventListener("click", async (event) => {
   if (!choiceId) return;
 
   await saveState(selectChoice(state, choiceId));
+});
+
+app?.addEventListener("keydown", async (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+
+  const card = target.closest<HTMLButtonElement>(".choice-card");
+  const choiceId = card?.dataset.choiceId;
+  if (!choiceId) return;
+
+  const navigationKeys = new Map<string, "next" | "previous" | "first" | "last">([
+    ["ArrowRight", "next"],
+    ["ArrowDown", "next"],
+    ["ArrowLeft", "previous"],
+    ["ArrowUp", "previous"],
+    ["Home", "first"],
+    ["End", "last"],
+  ]);
+  const direction = navigationKeys.get(event.key);
+  if (!direction) return;
+
+  const nextChoiceId = getChoiceNavigationTarget(state, choiceId, direction);
+  if (!nextChoiceId) return;
+
+  event.preventDefault();
+  pendingChoiceFocusId = nextChoiceId;
+  await saveState(selectChoice(state, nextChoiceId));
 });
 
 app?.addEventListener("change", async (event) => {
