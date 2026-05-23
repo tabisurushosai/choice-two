@@ -7,8 +7,11 @@ import {
   ChoiceBoardState,
   ChoiceCard,
   ChoiceBoardText,
+  ChoiceMode,
   canUnlockParentMode,
+  canUseChoiceMode,
   canRestoreRemovedChoice,
+  choiceModes,
   choiceBoardStorageKey,
   clearSelectedChoice,
   createChoiceBoardState,
@@ -19,12 +22,14 @@ import {
   getChoiceCardLimit,
   getChoiceNavigationTarget,
   getPremiumGate,
+  getVisibleChoices,
   hasActiveChoices,
   minChoiceCards,
   removeChoice,
   RemovedChoiceSnapshot,
   restoreRemovedChoice,
   selectChoice,
+  setChoiceMode,
   startPremiumTrial,
   switchToChildMode,
   switchToParentMode,
@@ -163,7 +168,7 @@ function render(): void {
   choices.setAttribute("aria-label", t("choiceCardsAria"));
 
   if (hasActiveChoices(state)) {
-    for (const choice of activeSet.choices) {
+    for (const choice of getVisibleChoices(state)) {
       choices.append(renderChoiceCard(choice, activeSet.selectedChoiceId));
     }
   } else {
@@ -183,6 +188,7 @@ function render(): void {
 
   if (state.mode === "parent") {
     shell.append(renderSetSwitcher(state));
+    shell.append(renderChoiceModeControls(state));
   }
 
   shell.append(choices, renderConfirmation(state));
@@ -200,6 +206,42 @@ function render(): void {
       ?.focus();
     pendingChoiceFocusId = null;
   }
+}
+
+function renderChoiceModeControls(stateToRender: ChoiceBoardState): HTMLElement {
+  const activeSet = getActiveChoiceSet(stateToRender);
+  const controls = document.createElement("section");
+  controls.className = "choice-mode";
+  controls.setAttribute("aria-label", t("choiceModeAria"));
+
+  const label = document.createElement("div");
+  label.className = "choice-mode__label";
+  label.textContent = t("choiceModeLabel");
+
+  const buttons = document.createElement("div");
+  buttons.className = "choice-mode__buttons";
+
+  for (const mode of choiceModes) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className =
+      activeSet.choiceMode === mode
+        ? "choice-mode__button choice-mode__button--active"
+        : "choice-mode__button";
+    button.dataset.action = "set-choice-mode";
+    button.dataset.choiceMode = String(mode);
+    button.setAttribute("aria-pressed", String(activeSet.choiceMode === mode));
+    button.textContent = t(mode === 2 ? "choiceModeTwo" : "choiceModeFour");
+    button.disabled = !canUseChoiceMode(stateToRender, mode);
+    buttons.append(button);
+  }
+
+  const note = document.createElement("p");
+  note.className = "choice-mode__note";
+  note.textContent = t("choiceModeNote");
+
+  controls.append(label, buttons, note);
+  return controls;
 }
 
 function renderStorageStatus(message: string): HTMLElement {
@@ -609,6 +651,57 @@ function injectStyles(): void {
       cursor: not-allowed;
     }
 
+    .choice-mode {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+    }
+
+    .choice-mode__label {
+      color: #52606d;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .choice-mode__buttons {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .choice-mode__button {
+      min-height: 40px;
+      border: 2px solid #c7d4df;
+      border-radius: 14px;
+      background: #ffffff;
+      color: #102a43;
+      font: inherit;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .choice-mode__button--active {
+      border-color: #2457c5;
+      background: #eef7ff;
+      color: #173f98;
+      box-shadow: inset 0 0 0 2px #dcecff;
+    }
+
+    .choice-mode__button:disabled {
+      color: #829ab1;
+      background: #f8fbff;
+      cursor: not-allowed;
+    }
+
+    .choice-mode__note {
+      grid-column: 1 / -1;
+      margin: -2px 0 0;
+      color: #455f79;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
     .choice-board__cards {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1014,6 +1107,15 @@ app?.addEventListener("click", async (event) => {
 
   if (actionButton?.dataset.action === "start-trial") {
     await saveState(startPremiumTrial(state));
+    return;
+  }
+
+  if (actionButton?.dataset.action === "set-choice-mode") {
+    const choiceMode = Number(actionButton.dataset.choiceMode);
+    if (choiceMode !== 2 && choiceMode !== 4) return;
+
+    lastRemovedChoice = null;
+    await saveState(setChoiceMode(state, choiceMode as ChoiceMode, messages));
     return;
   }
 

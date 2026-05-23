@@ -9,6 +9,7 @@ export interface ChoiceSet {
   name: string;
   choices: ChoiceCard[];
   selectedChoiceId: string | null;
+  choiceMode: ChoiceMode;
 }
 
 export interface ChoiceBoardState {
@@ -33,6 +34,7 @@ export interface RemovedChoiceSnapshot {
 }
 
 export type ChoiceBoardMode = "parent" | "child";
+export type ChoiceMode = 2 | 4;
 export type ChoiceNavigationDirection = "next" | "previous" | "first" | "last";
 export type PremiumStatus = "free" | "trial" | "premium";
 
@@ -62,6 +64,7 @@ export interface ChoiceBoardText {
 
 export const choiceBoardStorageKey = "choiceBoardState";
 export const minChoiceCards = 2;
+export const choiceModes: ChoiceMode[] = [2, 4];
 export const freeMaxChoiceCards = 3;
 export const premiumMaxChoiceCards = 6;
 export const maxChoiceCards = premiumMaxChoiceCards;
@@ -121,6 +124,7 @@ export function createChoiceBoardState(
       text.firstSetName,
       savedState.choices,
       savedState.selectedChoiceId,
+      normalizeChoiceMode(undefined, savedState.choices, getChoiceCardLimit({ premium })),
       text,
       getChoiceCardLimit({ premium }),
     );
@@ -242,7 +246,7 @@ export function getChoiceNavigationTarget(
   currentChoiceId: string,
   direction: ChoiceNavigationDirection,
 ): string | null {
-  const choices = getActiveChoiceSet(state).choices;
+  const choices = getVisibleChoices(state);
   if (choices.length === 0) return null;
 
   const currentIndex = choices.findIndex((choice) => choice.id === currentChoiceId);
@@ -266,7 +270,13 @@ export function canRemoveChoice(state: ChoiceBoardState): boolean {
 }
 
 export function hasActiveChoices(state: ChoiceBoardState): boolean {
-  return getActiveChoiceSet(state).choices.length > 0;
+  return getVisibleChoices(state).length > 0;
+}
+
+export function getVisibleChoices(state: ChoiceBoardState): ChoiceCard[] {
+  const activeSet = getActiveChoiceSet(state);
+
+  return activeSet.choices.slice(0, activeSet.choiceMode);
 }
 
 export function addChoice(
@@ -287,6 +297,34 @@ export function addChoice(
         label: normalizeLabel(choice.label, text),
       },
     ],
+  });
+}
+
+export function canUseChoiceMode(
+  state: ChoiceBoardState,
+  choiceMode: ChoiceMode,
+): boolean {
+  return choiceMode <= getChoiceCardLimit(state);
+}
+
+export function setChoiceMode(
+  state: ChoiceBoardState,
+  choiceMode: ChoiceMode,
+  text: ChoiceBoardText = defaultChoiceBoardText,
+): ChoiceBoardState {
+  if (!canUseChoiceMode(state, choiceMode)) return state;
+  const activeSet = getActiveChoiceSet(state);
+  const choices = fillChoicesToMode(activeSet.choices, choiceMode, text);
+  const visibleChoiceIds = new Set(choices.slice(0, choiceMode).map((choice) => choice.id));
+
+  return updateActiveChoiceSet(state, {
+    ...activeSet,
+    choiceMode,
+    choices,
+    selectedChoiceId:
+      activeSet.selectedChoiceId && visibleChoiceIds.has(activeSet.selectedChoiceId)
+        ? activeSet.selectedChoiceId
+        : null,
   });
 }
 
@@ -324,12 +362,14 @@ export function removeChoice(
   const activeSet = getActiveChoiceSet(state);
 
   const choices = activeSet.choices.filter((choice) => choice.id !== choiceId);
+  const choiceMode = normalizeChoiceMode(activeSet.choiceMode, choices, getChoiceCardLimit(state));
   const selectedChoiceId =
     activeSet.selectedChoiceId === choiceId ? null : activeSet.selectedChoiceId;
 
   return updateActiveChoiceSet(state, {
     ...activeSet,
     choices,
+    choiceMode,
     selectedChoiceId,
   });
 }
@@ -384,6 +424,7 @@ export function restoreRemovedChoice(
       return {
         ...set,
         choices,
+        choiceMode: normalizeChoiceMode(set.choiceMode, choices, getChoiceCardLimit(state)),
         selectedChoiceId: choices.some(
           (choice) => choice.id === removedChoice.selectedChoiceId,
         )
@@ -547,6 +588,7 @@ function normalizeChoiceSets(
       typeof set.name === "string" ? set.name : createChoiceSetName(index + 1, text),
       set.choices,
       typeof set.selectedChoiceId === "string" ? set.selectedChoiceId : null,
+      normalizeChoiceMode(set.choiceMode, set.choices, maxCards),
       text,
       maxCards,
     ),
@@ -560,7 +602,7 @@ function createDefaultChoiceSet(
   name: string,
   text: ChoiceBoardText = defaultChoiceBoardText,
 ): ChoiceSet {
-  return createChoiceSet(id, name, text.defaultChoices, null, text);
+  return createChoiceSet(id, name, text.defaultChoices, null, minChoiceCards, text);
 }
 
 function createChoiceSet(
@@ -568,18 +610,21 @@ function createChoiceSet(
   name: string,
   choicesToNormalize: unknown,
   selectedChoiceId: unknown,
+  choiceModeToNormalize: unknown,
   text: ChoiceBoardText = defaultChoiceBoardText,
   maxCards = maxChoiceCards,
 ): ChoiceSet {
   const choices = normalizeChoices(choicesToNormalize, text, maxCards);
+  const choiceMode = normalizeChoiceMode(choiceModeToNormalize, choices, maxCards);
 
   return {
     id,
     name: normalizeChoiceSetName(name, text),
     choices,
+    choiceMode,
     selectedChoiceId:
       typeof selectedChoiceId === "string" &&
-      choices.some((choice) => choice.id === selectedChoiceId)
+      choices.slice(0, choiceMode).some((choice) => choice.id === selectedChoiceId)
         ? selectedChoiceId
         : null,
   };
@@ -638,6 +683,40 @@ function normalizeParentPin(pin: unknown): string {
 
   const digits = pin.replace(/\D/g, "").slice(0, 8);
   return digits || defaultParentPin;
+}
+
+function normalizeChoiceMode(
+  choiceMode: unknown,
+  choices: unknown,
+  maxCards = maxChoiceCards,
+): ChoiceMode {
+  const availableChoices = Array.isArray(choices) ? choices.length : 0;
+  if (choiceMode === 4 && maxCards >= 4) return 4;
+  if (choiceMode === 2) return 2;
+
+  return availableChoices >= 4 && maxCards >= 4 ? 4 : 2;
+}
+
+function fillChoicesToMode(
+  choices: ChoiceCard[],
+  choiceMode: ChoiceMode,
+  text: ChoiceBoardText = defaultChoiceBoardText,
+): ChoiceCard[] {
+  if (choices.length >= choiceMode) return choices;
+
+  let nextChoices = choices;
+  while (nextChoices.length < choiceMode) {
+    nextChoices = [
+      ...nextChoices,
+      {
+        id: createChoiceId(nextChoices),
+        emoji: "⭐",
+        label: text.fallbackChoiceLabel,
+      },
+    ];
+  }
+
+  return nextChoices;
 }
 
 function createFreePremiumState(): PremiumState {
