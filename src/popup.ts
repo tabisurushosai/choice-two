@@ -110,7 +110,8 @@ function render(): void {
   const activeSet = getActiveChoiceSet(state);
 
   const shell = document.createElement("main");
-  shell.className = "choice-board";
+  shell.className =
+    state.mode === "child" ? "choice-board choice-board--child" : "choice-board";
 
   const choices = document.createElement("div");
   choices.className = "choice-board__cards";
@@ -365,14 +366,27 @@ function injectStyles(): void {
   const style = document.createElement("style");
   style.textContent = `
     body {
+      box-sizing: border-box;
+      width: 360px;
       margin: 0;
-      color: #1f2933;
-      background: #fffdf8;
+      padding: 14px;
+      color: #25313b;
+      background: #fff8ee;
+      font-family:
+        ui-rounded,
+        "Hiragino Maru Gothic ProN",
+        "Hiragino Sans",
+        system-ui,
+        sans-serif;
     }
 
     .choice-board {
       display: grid;
-      gap: 12px;
+      gap: 14px;
+    }
+
+    .choice-board--child {
+      gap: 16px;
     }
 
     .mode-controls {
@@ -391,9 +405,9 @@ function injectStyles(): void {
     .mode-controls__pin,
     .mode-controls__button {
       box-sizing: border-box;
-      min-height: 34px;
-      border: 1px solid #bcccdc;
-      border-radius: 6px;
+      min-height: 40px;
+      border: 1px solid #c7d4df;
+      border-radius: 12px;
       background: #ffffff;
       color: #102a43;
       font: inherit;
@@ -405,6 +419,8 @@ function injectStyles(): void {
     }
 
     .mode-controls__button {
+      padding: 0 12px;
+      background: #fff3d6;
       font-weight: 700;
       cursor: pointer;
     }
@@ -434,9 +450,9 @@ function injectStyles(): void {
     .choice-set__name,
     .choice-set__add {
       box-sizing: border-box;
-      min-height: 34px;
-      border: 1px solid #bcccdc;
-      border-radius: 6px;
+      min-height: 40px;
+      border: 1px solid #c7d4df;
+      border-radius: 12px;
       background: #ffffff;
       color: #102a43;
       font: inherit;
@@ -453,6 +469,8 @@ function injectStyles(): void {
 
     .choice-set__add {
       grid-column: 2 / 3;
+      padding: 0 12px;
+      background: #e8f7f0;
       font-weight: 700;
       cursor: pointer;
     }
@@ -465,51 +483,65 @@ function injectStyles(): void {
     .choice-board__cards {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
+      gap: 12px;
     }
 
     .choice-card {
       display: grid;
-      min-height: 108px;
-      padding: 12px 8px;
-      border: 2px solid #d9e2ec;
-      border-radius: 8px;
+      gap: 8px;
+      min-height: 132px;
+      padding: 16px 10px;
+      border: 3px solid #f0d3aa;
+      border-radius: 22px;
       background: #ffffff;
       color: inherit;
       font: inherit;
       place-items: center;
+      text-align: center;
+      box-shadow: 0 6px 0 #f3dfc4;
       cursor: pointer;
     }
 
     .choice-card:focus-visible {
-      outline: 3px solid #2f80ed;
-      outline-offset: 2px;
+      outline: 4px solid #4f86f7;
+      outline-offset: 3px;
+    }
+
+    .choice-card:hover {
+      background: #fffaf2;
+    }
+
+    .choice-card:active {
+      transform: translateY(2px);
+      box-shadow: 0 4px 0 #f3dfc4;
     }
 
     .choice-card--selected {
-      border-color: #2f80ed;
-      background: #edf7ff;
-      box-shadow: 0 0 0 3px #d5ebff;
+      border-color: #4f86f7;
+      background: #eef7ff;
+      box-shadow: 0 6px 0 #c7ddff, 0 0 0 4px #dcecff;
     }
 
     .choice-card__emoji {
-      font-size: 44px;
+      font-size: 58px;
       line-height: 1;
     }
 
     .choice-card__label {
-      font-size: 16px;
+      color: #243b53;
+      font-size: 18px;
       font-weight: 700;
+      line-height: 1.25;
     }
 
     .confirmation {
       display: grid;
-      min-height: 116px;
-      padding: 14px;
-      border: 2px dashed #bcccdc;
-      border-radius: 8px;
-      background: #f8fafc;
-      color: #52606d;
+      min-height: 132px;
+      padding: 16px;
+      border: 3px dashed #e0bd7f;
+      border-radius: 22px;
+      background: #fffef9;
+      color: #6b7280;
       font-size: 18px;
       font-weight: 700;
       place-items: center;
@@ -518,20 +550,38 @@ function injectStyles(): void {
 
     .confirmation--selected {
       border-style: solid;
-      border-color: #80b7e8;
-      background: #eff8ff;
+      border-color: #73c3a6;
+      background: #effbf5;
       animation: confirmation-pop 360ms ease-out both;
     }
 
     .confirmation__emoji {
-      font-size: 76px;
+      font-size: 88px;
       line-height: 1;
       animation: confirmation-emoji-pop 420ms ease-out both;
     }
 
     .confirmation__label {
-      color: #102a43;
-      font-size: 24px;
+      color: #12344d;
+      font-size: 26px;
+      line-height: 1.25;
+    }
+
+    .choice-board--child .choice-card {
+      min-height: 150px;
+      padding: 18px 12px;
+    }
+
+    .choice-board--child .choice-card__emoji {
+      font-size: 66px;
+    }
+
+    .choice-board--child .choice-card__label {
+      font-size: 20px;
+    }
+
+    .choice-board--child .confirmation {
+      min-height: 150px;
     }
 
     .premium-gate {
@@ -539,8 +589,8 @@ function injectStyles(): void {
       gap: 6px;
       padding: 10px;
       border: 1px solid #d9e2ec;
-      border-radius: 8px;
-      background: #f8fafc;
+      border-radius: 12px;
+      background: #ffffff;
     }
 
     .premium-gate__status,
@@ -567,11 +617,11 @@ function injectStyles(): void {
     .premium-gate__button,
     .premium-gate__checkout {
       box-sizing: border-box;
-      min-height: 32px;
+      min-height: 38px;
       padding: 6px 10px;
       border: 1px solid #9fb3c8;
-      border-radius: 6px;
-      background: #ffffff;
+      border-radius: 12px;
+      background: #f8fbff;
       color: #102a43;
       font: inherit;
       font-size: 13px;
@@ -634,7 +684,7 @@ function injectStyles(): void {
       width: 100%;
       min-height: 34px;
       border: 1px solid #bcccdc;
-      border-radius: 6px;
+      border-radius: 12px;
       color: #102a43;
       font: inherit;
     }
@@ -646,7 +696,7 @@ function injectStyles(): void {
     .choice-editor button {
       min-height: 34px;
       border: 1px solid #9fb3c8;
-      border-radius: 6px;
+      border-radius: 12px;
       background: #ffffff;
       color: #102a43;
       font: inherit;
