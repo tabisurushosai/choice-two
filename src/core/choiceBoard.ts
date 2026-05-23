@@ -10,6 +10,7 @@ export interface ChoiceSet {
   choices: ChoiceCard[];
   selectedChoiceId: string | null;
   choiceMode: ChoiceMode;
+  theme: ChoiceTheme;
 }
 
 export interface ChoiceBoardState {
@@ -35,6 +36,7 @@ export interface RemovedChoiceSnapshot {
 
 export type ChoiceBoardMode = "parent" | "child";
 export type ChoiceMode = 2 | 4;
+export type ChoiceTheme = "sunny" | "mint" | "sky" | "berry";
 export type ChoiceNavigationDirection = "next" | "previous" | "first" | "last";
 export type PremiumStatus = "free" | "trial" | "premium";
 
@@ -65,6 +67,7 @@ export interface ChoiceBoardText {
 export const choiceBoardStorageKey = "choiceBoardState";
 export const minChoiceCards = 2;
 export const choiceModes: ChoiceMode[] = [2, 4];
+export const choiceThemes: ChoiceTheme[] = ["sunny", "mint", "sky", "berry"];
 export const freeMaxChoiceCards = 3;
 export const premiumMaxChoiceCards = 6;
 export const maxChoiceCards = premiumMaxChoiceCards;
@@ -125,6 +128,7 @@ export function createChoiceBoardState(
       savedState.choices,
       savedState.selectedChoiceId,
       normalizeChoiceMode(undefined, savedState.choices, getChoiceCardLimit({ premium })),
+      "sunny",
       text,
       getChoiceCardLimit({ premium }),
     );
@@ -552,6 +556,19 @@ export function updateChoiceSetName(
   };
 }
 
+export function updateChoiceSetTheme(
+  state: ChoiceBoardState,
+  setId: string,
+  theme: ChoiceTheme,
+): ChoiceBoardState {
+  return {
+    ...state,
+    sets: state.sets.map((set) =>
+      set.id === setId ? { ...set, theme: normalizeChoiceTheme(theme) } : set,
+    ),
+  };
+}
+
 function normalizeChoices(
   choices: unknown,
   text: ChoiceBoardText = defaultChoiceBoardText,
@@ -589,6 +606,7 @@ function normalizeChoiceSets(
       set.choices,
       typeof set.selectedChoiceId === "string" ? set.selectedChoiceId : null,
       normalizeChoiceMode(set.choiceMode, set.choices, maxCards),
+      normalizeChoiceTheme(set.theme),
       text,
       maxCards,
     ),
@@ -602,7 +620,15 @@ function createDefaultChoiceSet(
   name: string,
   text: ChoiceBoardText = defaultChoiceBoardText,
 ): ChoiceSet {
-  return createChoiceSet(id, name, text.defaultChoices, null, minChoiceCards, text);
+  return createChoiceSet(
+    id,
+    name,
+    text.defaultChoices,
+    null,
+    minChoiceCards,
+    "sunny",
+    text,
+  );
 }
 
 function createChoiceSet(
@@ -611,6 +637,7 @@ function createChoiceSet(
   choicesToNormalize: unknown,
   selectedChoiceId: unknown,
   choiceModeToNormalize: unknown,
+  themeToNormalize: unknown,
   text: ChoiceBoardText = defaultChoiceBoardText,
   maxCards = maxChoiceCards,
 ): ChoiceSet {
@@ -622,6 +649,7 @@ function createChoiceSet(
     name: normalizeChoiceSetName(name, text),
     choices,
     choiceMode,
+    theme: normalizeChoiceTheme(themeToNormalize),
     selectedChoiceId:
       typeof selectedChoiceId === "string" &&
       choices.slice(0, choiceMode).some((choice) => choice.id === selectedChoiceId)
@@ -662,6 +690,12 @@ function normalizeChoiceSetName(
   if (typeof name !== "string") return text.fallbackChoiceSetName;
 
   return name.trim() || text.fallbackChoiceSetName;
+}
+
+function normalizeChoiceTheme(theme: unknown): ChoiceTheme {
+  return typeof theme === "string" && choiceThemes.includes(theme as ChoiceTheme)
+    ? (theme as ChoiceTheme)
+    : "sunny";
 }
 
 function normalizeId(id: unknown): string {

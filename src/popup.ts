@@ -8,10 +8,12 @@ import {
   ChoiceCard,
   ChoiceBoardText,
   ChoiceMode,
+  ChoiceTheme,
   canUnlockParentMode,
   canUseChoiceMode,
   canRestoreRemovedChoice,
   choiceModes,
+  choiceThemes,
   choiceBoardStorageKey,
   clearSelectedChoice,
   createChoiceBoardState,
@@ -38,6 +40,7 @@ import {
   updateParentPin,
   updateChoice,
   updateChoiceSetName,
+  updateChoiceSetTheme,
 } from "./core/choiceBoard";
 import { store } from "./storage";
 
@@ -157,10 +160,12 @@ function renderConfirmation(stateToRender: ChoiceBoardState): HTMLElement {
 function render(): void {
   if (!app) return;
   const activeSet = getActiveChoiceSet(state);
+  document.body.dataset.theme = activeSet.theme;
 
   const shell = document.createElement("main");
   shell.className =
     state.mode === "child" ? "choice-board choice-board--child" : "choice-board";
+  shell.dataset.theme = activeSet.theme;
 
   const choices = document.createElement("div");
   choices.className = "choice-board__cards";
@@ -188,6 +193,7 @@ function render(): void {
 
   if (state.mode === "parent") {
     shell.append(renderSetSwitcher(state));
+    shell.append(renderThemeControls(state));
     shell.append(renderChoiceModeControls(state));
   }
 
@@ -351,6 +357,47 @@ function renderSetSwitcher(stateToRender: ChoiceBoardState): HTMLElement {
   return switcher;
 }
 
+function renderThemeControls(stateToRender: ChoiceBoardState): HTMLElement {
+  const activeSet = getActiveChoiceSet(stateToRender);
+  const controls = document.createElement("section");
+  controls.className = "theme-controls";
+  controls.setAttribute("aria-label", t("themeControlsAria"));
+
+  const label = document.createElement("div");
+  label.className = "theme-controls__label";
+  label.textContent = t("themeLabel");
+
+  const options = document.createElement("div");
+  options.className = "theme-controls__options";
+
+  for (const theme of choiceThemes) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className =
+      activeSet.theme === theme
+        ? "theme-controls__button theme-controls__button--active"
+        : "theme-controls__button";
+    button.dataset.action = "set-theme";
+    button.dataset.theme = theme;
+    button.setAttribute("aria-label", t(`theme${capitalizeTheme(theme)}`));
+    button.setAttribute("aria-pressed", String(activeSet.theme === theme));
+
+    const swatch = document.createElement("span");
+    swatch.className = `theme-controls__swatch theme-controls__swatch--${theme}`;
+    swatch.setAttribute("aria-hidden", "true");
+
+    const name = document.createElement("span");
+    name.className = "theme-controls__name";
+    name.textContent = t(`theme${capitalizeTheme(theme)}`);
+
+    button.append(swatch, name);
+    options.append(button);
+  }
+
+  controls.append(label, options);
+  return controls;
+}
+
 function renderPremiumGate(stateToRender: ChoiceBoardState): HTMLElement {
   const premium = getPremiumGate(stateToRender);
   const gate = document.createElement("section");
@@ -506,6 +553,10 @@ function formatDate(timestamp: number): string {
   }).format(new Date(timestamp));
 }
 
+function capitalizeTheme(theme: ChoiceTheme): string {
+  return theme.charAt(0).toUpperCase() + theme.slice(1);
+}
+
 async function saveState(nextState: ChoiceBoardState): Promise<void> {
   state = nextState;
   parentUnlockError = "";
@@ -539,9 +590,74 @@ function injectStyles(): void {
         sans-serif;
     }
 
+    body[data-theme="mint"] {
+      background: #f0fbf5;
+    }
+
+    body[data-theme="sky"] {
+      background: #eef7ff;
+    }
+
+    body[data-theme="berry"] {
+      background: #fff5f8;
+    }
+
     .choice-board {
+      --page-bg: #fff8ee;
+      --card-border: #f0d3aa;
+      --card-shadow: #f3dfc4;
+      --card-hover: #fffaf2;
+      --selected-bg: #eef7ff;
+      --selected-border: #2457c5;
+      --selected-shadow: #b7d1ff;
+      --selected-ring: #dcecff;
+      --confirm-bg: #effbf5;
+      --confirm-border: #2f8f6b;
+      --confirm-text: #0b6b50;
       display: grid;
       gap: 14px;
+    }
+
+    .choice-board[data-theme="mint"] {
+      --page-bg: #f0fbf5;
+      --card-border: #9bd7b7;
+      --card-shadow: #c7ead6;
+      --card-hover: #f7fffa;
+      --selected-bg: #e6f8ef;
+      --selected-border: #17754c;
+      --selected-shadow: #9bd7b7;
+      --selected-ring: #c7ead6;
+      --confirm-bg: #e6f8ef;
+      --confirm-border: #17754c;
+      --confirm-text: #0f5f3d;
+    }
+
+    .choice-board[data-theme="sky"] {
+      --page-bg: #eef7ff;
+      --card-border: #9fc7ee;
+      --card-shadow: #cde3f8;
+      --card-hover: #f7fbff;
+      --selected-bg: #e7f0ff;
+      --selected-border: #2457c5;
+      --selected-shadow: #aac6ff;
+      --selected-ring: #dcecff;
+      --confirm-bg: #e9f5ff;
+      --confirm-border: #2770a8;
+      --confirm-text: #185a8a;
+    }
+
+    .choice-board[data-theme="berry"] {
+      --page-bg: #fff5f8;
+      --card-border: #efb2c4;
+      --card-shadow: #f6cfda;
+      --card-hover: #fff9fb;
+      --selected-bg: #fff0f5;
+      --selected-border: #a93461;
+      --selected-shadow: #efb2c4;
+      --selected-ring: #f9d8e2;
+      --confirm-bg: #fff0f5;
+      --confirm-border: #a93461;
+      --confirm-text: #84224b;
     }
 
     .choice-board--child {
@@ -658,6 +774,78 @@ function injectStyles(): void {
       align-items: center;
     }
 
+    .theme-controls {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+    }
+
+    .theme-controls__label {
+      color: #52606d;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .theme-controls__options {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .theme-controls__button {
+      display: grid;
+      gap: 4px;
+      justify-items: center;
+      min-width: 0;
+      min-height: 48px;
+      padding: 5px 4px;
+      border: 2px solid #c7d4df;
+      border-radius: 14px;
+      background: #ffffff;
+      color: #102a43;
+      font: inherit;
+      font-size: 11px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .theme-controls__button--active {
+      border-color: var(--selected-border);
+      background: var(--selected-bg);
+      box-shadow: inset 0 0 0 2px var(--selected-ring);
+    }
+
+    .theme-controls__swatch {
+      width: 22px;
+      height: 16px;
+      border: 1px solid rgba(16, 42, 67, 0.18);
+      border-radius: 999px;
+    }
+
+    .theme-controls__swatch--sunny {
+      background: linear-gradient(90deg, #fff3d6 0 50%, #dcecff 50% 100%);
+    }
+
+    .theme-controls__swatch--mint {
+      background: linear-gradient(90deg, #e6f8ef 0 50%, #9bd7b7 50% 100%);
+    }
+
+    .theme-controls__swatch--sky {
+      background: linear-gradient(90deg, #e9f5ff 0 50%, #9fc7ee 50% 100%);
+    }
+
+    .theme-controls__swatch--berry {
+      background: linear-gradient(90deg, #fff0f5 0 50%, #efb2c4 50% 100%);
+    }
+
+    .theme-controls__name {
+      overflow: hidden;
+      max-width: 100%;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .choice-mode__label {
       color: #52606d;
       font-size: 13px;
@@ -731,14 +919,14 @@ function injectStyles(): void {
       gap: 8px;
       min-height: 132px;
       padding: 16px 10px;
-      border: 3px solid #f0d3aa;
+      border: 3px solid var(--card-border);
       border-radius: 22px;
       background: #ffffff;
       color: inherit;
       font: inherit;
       place-items: center;
       text-align: center;
-      box-shadow: 0 6px 0 #f3dfc4;
+      box-shadow: 0 6px 0 var(--card-shadow);
       cursor: pointer;
     }
 
@@ -748,18 +936,18 @@ function injectStyles(): void {
     }
 
     .choice-card:hover {
-      background: #fffaf2;
+      background: var(--card-hover);
     }
 
     .choice-card:active {
       transform: translateY(2px);
-      box-shadow: 0 4px 0 #f3dfc4;
+      box-shadow: 0 4px 0 var(--card-shadow);
     }
 
     .choice-card--selected {
-      border-color: #2457c5;
-      background: #eef7ff;
-      box-shadow: 0 6px 0 #b7d1ff, 0 0 0 4px #dcecff;
+      border-color: var(--selected-border);
+      background: var(--selected-bg);
+      box-shadow: 0 6px 0 var(--selected-shadow), 0 0 0 4px var(--selected-ring);
     }
 
     .choice-card__selected-marker {
@@ -768,10 +956,10 @@ function injectStyles(): void {
       right: 8px;
       min-width: 28px;
       min-height: 28px;
-      border: 2px solid #2457c5;
+      border: 2px solid var(--selected-border);
       border-radius: 999px;
       background: #ffffff;
-      color: #173f98;
+      color: var(--selected-border);
       font-size: 16px;
       font-weight: 800;
       line-height: 24px;
@@ -806,8 +994,8 @@ function injectStyles(): void {
     .confirmation--selected {
       gap: 8px;
       border-style: solid;
-      border-color: #2f8f6b;
-      background: #effbf5;
+      border-color: var(--confirm-border);
+      background: var(--confirm-bg);
       animation: confirmation-pop 360ms ease-out both;
     }
 
@@ -816,7 +1004,7 @@ function injectStyles(): void {
       padding: 4px 12px;
       border-radius: 999px;
       background: #ffffff;
-      color: #0b6b50;
+      color: var(--confirm-text);
       font-size: 18px;
       font-weight: 800;
       line-height: 1.2;
@@ -1116,6 +1304,16 @@ app?.addEventListener("click", async (event) => {
 
     lastRemovedChoice = null;
     await saveState(setChoiceMode(state, choiceMode as ChoiceMode, messages));
+    return;
+  }
+
+  if (actionButton?.dataset.action === "set-theme") {
+    const theme = actionButton.dataset.theme;
+    if (!choiceThemes.includes(theme as ChoiceTheme)) return;
+
+    const activeSet = getActiveChoiceSet(state);
+    lastRemovedChoice = null;
+    await saveState(updateChoiceSetTheme(state, activeSet.id, theme as ChoiceTheme));
     return;
   }
 
