@@ -25,6 +25,13 @@ export interface ChoiceConfirmation {
   confirmationLabel: string | null;
 }
 
+export interface RemovedChoiceSnapshot {
+  setId: string;
+  choice: ChoiceCard;
+  index: number;
+  selectedChoiceId: string | null;
+}
+
 export type ChoiceBoardMode = "parent" | "child";
 export type ChoiceNavigationDirection = "next" | "previous" | "first" | "last";
 export type PremiumStatus = "free" | "trial" | "premium";
@@ -243,6 +250,10 @@ export function canRemoveChoice(state: ChoiceBoardState): boolean {
   return getActiveChoiceSet(state).choices.length > minChoiceCards;
 }
 
+export function hasActiveChoices(state: ChoiceBoardState): boolean {
+  return getActiveChoiceSet(state).choices.length > 0;
+}
+
 export function addChoice(
   state: ChoiceBoardState,
   choice: Pick<ChoiceCard, "emoji" | "label">,
@@ -306,6 +317,66 @@ export function removeChoice(
     choices,
     selectedChoiceId,
   });
+}
+
+export function createRemovedChoiceSnapshot(
+  state: ChoiceBoardState,
+  choiceId: string,
+): RemovedChoiceSnapshot | null {
+  if (!canRemoveChoice(state)) return null;
+  const activeSet = getActiveChoiceSet(state);
+  const index = activeSet.choices.findIndex((choice) => choice.id === choiceId);
+  if (index === -1) return null;
+
+  return {
+    setId: activeSet.id,
+    choice: activeSet.choices[index],
+    index,
+    selectedChoiceId: activeSet.selectedChoiceId,
+  };
+}
+
+export function canRestoreRemovedChoice(
+  state: ChoiceBoardState,
+  removedChoice: RemovedChoiceSnapshot | null,
+): boolean {
+  if (!removedChoice) return false;
+  const set = state.sets.find((item) => item.id === removedChoice.setId);
+  if (!set) return false;
+  if (set.choices.some((choice) => choice.id === removedChoice.choice.id)) return false;
+
+  return set.choices.length < getChoiceCardLimit(state);
+}
+
+export function restoreRemovedChoice(
+  state: ChoiceBoardState,
+  removedChoice: RemovedChoiceSnapshot | null,
+): ChoiceBoardState {
+  if (!canRestoreRemovedChoice(state, removedChoice) || !removedChoice) return state;
+
+  return {
+    ...state,
+    sets: state.sets.map((set) => {
+      if (set.id !== removedChoice.setId) return set;
+
+      const insertAt = Math.max(0, Math.min(removedChoice.index, set.choices.length));
+      const choices = [
+        ...set.choices.slice(0, insertAt),
+        removedChoice.choice,
+        ...set.choices.slice(insertAt),
+      ];
+
+      return {
+        ...set,
+        choices,
+        selectedChoiceId: choices.some(
+          (choice) => choice.id === removedChoice.selectedChoiceId,
+        )
+          ? removedChoice.selectedChoiceId
+          : set.selectedChoiceId,
+      };
+    }),
+  };
 }
 
 export function getActiveChoiceSet(state: ChoiceBoardState): ChoiceSet {

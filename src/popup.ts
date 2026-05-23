@@ -8,16 +8,21 @@ import {
   ChoiceCard,
   ChoiceBoardText,
   canUnlockParentMode,
+  canRestoreRemovedChoice,
   choiceBoardStorageKey,
   createChoiceBoardState,
   createInitialChoiceBoardState,
+  createRemovedChoiceSnapshot,
   getActiveChoiceSet,
   getChoiceConfirmation,
   getChoiceCardLimit,
   getChoiceNavigationTarget,
   getPremiumGate,
+  hasActiveChoices,
   minChoiceCards,
   removeChoice,
+  RemovedChoiceSnapshot,
+  restoreRemovedChoice,
   selectChoice,
   startPremiumTrial,
   switchToChildMode,
@@ -36,6 +41,8 @@ const messages = createLocalizedChoiceBoardText();
 let state = createInitialChoiceBoardState(messages);
 let parentUnlockError = "";
 let pendingChoiceFocusId: string | null = null;
+let pendingDeleteChoiceId: string | null = null;
+let lastRemovedChoice: RemovedChoiceSnapshot | null = null;
 
 function t(key: string, substitutions?: string | string[]): string {
   const message = chrome.i18n.getMessage(key, substitutions);
@@ -131,8 +138,17 @@ function render(): void {
   choices.setAttribute("role", "group");
   choices.setAttribute("aria-label", t("choiceCardsAria"));
 
-  for (const choice of activeSet.choices) {
-    choices.append(renderChoiceCard(choice, activeSet.selectedChoiceId));
+  if (hasActiveChoices(state)) {
+    for (const choice of activeSet.choices) {
+      choices.append(renderChoiceCard(choice, activeSet.selectedChoiceId));
+    }
+  } else {
+    const empty = document.createElement("p");
+    empty.className = "choice-board__empty";
+    empty.setAttribute("role", "status");
+    empty.textContent =
+      state.mode === "parent" ? t("emptyChoicesParent") : t("emptyChoicesChild");
+    choices.append(empty);
   }
 
   shell.append(renderModeControls(state));
@@ -342,13 +358,27 @@ function renderEditor(stateToRender: ChoiceBoardState): HTMLElement {
 
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
-    deleteButton.className = "choice-editor__delete";
+    deleteButton.className =
+      pendingDeleteChoiceId === choice.id
+        ? "choice-editor__delete choice-editor__delete--confirm"
+        : "choice-editor__delete";
     deleteButton.dataset.action = "delete";
     deleteButton.dataset.choiceId = choice.id;
-    deleteButton.textContent = t("deleteButton");
+    deleteButton.textContent =
+      pendingDeleteChoiceId === choice.id ? t("confirmDeleteButton") : t("deleteButton");
     deleteButton.disabled = !canRemoveChoice(stateToRender);
 
     row.append(emojiInput, labelInput, deleteButton);
+
+    if (pendingDeleteChoiceId === choice.id) {
+      const cancelDeleteButton = document.createElement("button");
+      cancelDeleteButton.type = "button";
+      cancelDeleteButton.className = "choice-editor__cancel-delete";
+      cancelDeleteButton.dataset.action = "cancel-delete";
+      cancelDeleteButton.textContent = t("cancelDeleteButton");
+      row.append(cancelDeleteButton);
+    }
+
     list.append(row);
   }
 
@@ -366,7 +396,28 @@ function renderEditor(stateToRender: ChoiceBoardState): HTMLElement {
     String(getChoiceCardLimit(stateToRender)),
   ]);
 
-  editor.append(heading, list, addButton, note);
+  editor.append(heading, list);
+
+  if (lastRemovedChoice) {
+    const undo = document.createElement("div");
+    undo.className = "choice-editor__undo";
+    undo.setAttribute("role", "status");
+
+    const undoMessage = document.createElement("span");
+    undoMessage.textContent = t("cardDeletedStatus", lastRemovedChoice.choice.label);
+
+    const undoButton = document.createElement("button");
+    undoButton.type = "button";
+    undoButton.className = "choice-editor__undo-button";
+    undoButton.dataset.action = "undo-delete";
+    undoButton.textContent = t("undoDeleteButton");
+    undoButton.disabled = !canRestoreRemovedChoice(stateToRender, lastRemovedChoice);
+
+    undo.append(undoMessage, undoButton);
+    editor.append(undo);
+  }
+
+  editor.append(addButton, note);
   return editor;
 }
 
@@ -380,6 +431,7 @@ function formatDate(timestamp: number): string {
 async function saveState(nextState: ChoiceBoardState): Promise<void> {
   state = nextState;
   parentUnlockError = "";
+  pendingDeleteChoiceId = null;
   render();
   await store.set(choiceBoardStorageKey, state);
 }
@@ -506,6 +558,23 @@ function injectStyles(): void {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 12px;
+    }
+
+    .choice-board__empty {
+      grid-column: 1 / -1;
+      margin: 0;
+      min-height: 120px;
+      display: grid;
+      place-items: center;
+      padding: 16px;
+      border: 3px dashed #d7b06e;
+      border-radius: 22px;
+      background: #fffef9;
+      color: #455f79;
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 1.4;
+      text-align: center;
     }
 
     .choice-card {
@@ -712,7 +781,7 @@ function injectStyles(): void {
 
     .choice-editor__row {
       display: grid;
-      grid-template-columns: 48px minmax(0, 1fr) auto;
+      grid-template-columns: 48px minmax(0, 1fr) auto auto;
       gap: 6px;
       align-items: center;
     }
@@ -745,6 +814,31 @@ function injectStyles(): void {
     .choice-editor button:disabled {
       color: #829ab1;
       cursor: not-allowed;
+    }
+
+    .choice-editor__delete--confirm {
+      border-color: #b42318;
+      background: #fff1f0;
+      color: #8f1d14;
+    }
+
+    .choice-editor__undo {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+      border: 1px solid #c7d4df;
+      border-radius: 12px;
+      background: #f8fbff;
+      color: #243b53;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .choice-editor__undo-button {
+      padding: 0 10px;
     }
 
     .choice-editor__note {
@@ -806,7 +900,21 @@ app?.addEventListener("click", async (event) => {
   }
 
   if (actionButton?.dataset.action === "add") {
+    lastRemovedChoice = null;
     await saveState(addChoice(state, { emoji: "⭐", label: t("newChoiceLabel") }, messages));
+    return;
+  }
+
+  if (actionButton?.dataset.action === "cancel-delete") {
+    pendingDeleteChoiceId = null;
+    render();
+    return;
+  }
+
+  if (actionButton?.dataset.action === "undo-delete") {
+    const restoredState = restoreRemovedChoice(state, lastRemovedChoice);
+    lastRemovedChoice = null;
+    await saveState(restoredState);
     return;
   }
 
@@ -814,6 +922,16 @@ app?.addEventListener("click", async (event) => {
     const choiceId = actionButton.dataset.choiceId;
     if (!choiceId) return;
 
+    if (pendingDeleteChoiceId !== choiceId) {
+      pendingDeleteChoiceId = choiceId;
+      render();
+      return;
+    }
+
+    const removedChoice = createRemovedChoiceSnapshot(state, choiceId);
+    if (!removedChoice) return;
+
+    lastRemovedChoice = removedChoice;
     await saveState(removeChoice(state, choiceId));
     return;
   }
@@ -822,6 +940,7 @@ app?.addEventListener("click", async (event) => {
   const choiceId = card?.dataset.choiceId;
   if (!choiceId) return;
 
+  lastRemovedChoice = null;
   await saveState(selectChoice(state, choiceId));
 });
 
@@ -855,6 +974,7 @@ app?.addEventListener("keydown", async (event) => {
 app?.addEventListener("change", async (event) => {
   const target = event.target;
   if (target instanceof HTMLSelectElement && target.dataset.action === "switch-set") {
+    lastRemovedChoice = null;
     await saveState(switchChoiceSet(state, target.value));
     return;
   }
@@ -870,6 +990,7 @@ app?.addEventListener("change", async (event) => {
     const setId = target.dataset.setId;
     if (!setId) return;
 
+    lastRemovedChoice = null;
     await saveState(updateChoiceSetName(state, setId, target.value, messages));
     return;
   }
@@ -885,6 +1006,7 @@ app?.addEventListener("change", async (event) => {
 
   const nextEmoji = target.dataset.field === "emoji" ? target.value : choice.emoji;
   const nextLabel = target.dataset.field === "label" ? target.value : choice.label;
+  lastRemovedChoice = null;
   await saveState(updateChoice(state, choiceId, { emoji: nextEmoji, label: nextLabel }, messages));
 });
 
