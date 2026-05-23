@@ -205,6 +205,17 @@ export function selectChoice(
   });
 }
 
+export function clearSelectedChoice(state: ChoiceBoardState): ChoiceBoardState {
+  const activeSet = getActiveChoiceSet(state);
+
+  if (activeSet.selectedChoiceId === null) return state;
+
+  return updateActiveChoiceSet(state, {
+    ...activeSet,
+    selectedChoiceId: null,
+  });
+}
+
 export function getSelectedChoice(state: ChoiceBoardState): ChoiceCard | null {
   const activeSet = getActiveChoiceSet(state);
 

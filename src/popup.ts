@@ -10,6 +10,7 @@ import {
   canUnlockParentMode,
   canRestoreRemovedChoice,
   choiceBoardStorageKey,
+  clearSelectedChoice,
   createChoiceBoardState,
   createInitialChoiceBoardState,
   createRemovedChoiceSnapshot,
@@ -44,6 +45,7 @@ let storageStatus = "";
 let pendingChoiceFocusId: string | null = null;
 let pendingDeleteChoiceId: string | null = null;
 let lastRemovedChoice: RemovedChoiceSnapshot | null = null;
+let confirmationReplayKey = 0;
 
 function t(key: string, substitutions?: string | string[]): string {
   const message = chrome.i18n.getMessage(key, substitutions);
@@ -107,12 +109,17 @@ function renderConfirmation(stateToRender: ChoiceBoardState): HTMLElement {
   confirmation.className = confirmationModel.selectedChoice
     ? "confirmation confirmation--selected"
     : "confirmation";
+  confirmation.dataset.replayKey = String(confirmationReplayKey);
   confirmation.setAttribute("aria-live", "polite");
 
   if (!confirmationModel.selectedChoice) {
     confirmation.textContent = confirmationModel.promptLabel;
     return confirmation;
   }
+
+  const settled = document.createElement("div");
+  settled.className = "confirmation__settled";
+  settled.textContent = t("choiceSettledLabel");
 
   const emoji = document.createElement("div");
   emoji.className = "confirmation__emoji";
@@ -122,7 +129,23 @@ function renderConfirmation(stateToRender: ChoiceBoardState): HTMLElement {
   label.className = "confirmation__label";
   label.textContent = confirmationModel.confirmationLabel;
 
-  confirmation.append(emoji, label);
+  const actions = document.createElement("div");
+  actions.className = "confirmation__actions";
+
+  const replayButton = document.createElement("button");
+  replayButton.type = "button";
+  replayButton.className = "confirmation__button confirmation__button--again";
+  replayButton.dataset.action = "replay-confirmation";
+  replayButton.textContent = t("choiceAgainButton");
+
+  const resetButton = document.createElement("button");
+  resetButton.type = "button";
+  resetButton.className = "confirmation__button confirmation__button--reset";
+  resetButton.dataset.action = "reset-choice";
+  resetButton.textContent = t("choiceResetButton");
+
+  actions.append(replayButton, resetButton);
+  confirmation.append(settled, emoji, label, actions);
   return confirmation;
 }
 
@@ -688,10 +711,24 @@ function injectStyles(): void {
     }
 
     .confirmation--selected {
+      gap: 8px;
       border-style: solid;
       border-color: #2f8f6b;
       background: #effbf5;
       animation: confirmation-pop 360ms ease-out both;
+    }
+
+    .confirmation__settled {
+      align-self: end;
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: #ffffff;
+      color: #0b6b50;
+      font-size: 18px;
+      font-weight: 800;
+      line-height: 1.2;
+      box-shadow: 0 2px 0 #b7e0cf;
+      animation: confirmation-settled-pop 460ms ease-out both;
     }
 
     .confirmation__emoji {
@@ -704,6 +741,35 @@ function injectStyles(): void {
       color: #12344d;
       font-size: 26px;
       line-height: 1.25;
+    }
+
+    .confirmation__actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      width: 100%;
+    }
+
+    .confirmation__button {
+      min-height: 44px;
+      border: 2px solid #95b8a7;
+      border-radius: 16px;
+      background: #ffffff;
+      color: #12344d;
+      font: inherit;
+      font-size: 15px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .confirmation__button--again {
+      background: #fff3d6;
+      border-color: #dbb868;
+    }
+
+    .confirmation__button--reset {
+      background: #f8fbff;
+      border-color: #9fb3c8;
     }
 
     .choice-board--child .choice-card {
@@ -721,6 +787,11 @@ function injectStyles(): void {
 
     .choice-board--child .confirmation {
       min-height: 150px;
+    }
+
+    .choice-board--child .confirmation__button {
+      min-height: 50px;
+      font-size: 16px;
     }
 
     .premium-gate {
@@ -792,6 +863,20 @@ function injectStyles(): void {
       }
       100% {
         transform: scale(1);
+      }
+    }
+
+    @keyframes confirmation-settled-pop {
+      0% {
+        opacity: 0;
+        transform: translateY(6px) scale(0.88);
+      }
+      72% {
+        transform: translateY(0) scale(1.08);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
       }
     }
 
@@ -889,7 +974,8 @@ function injectStyles(): void {
 
     @media (prefers-reduced-motion: reduce) {
       .confirmation--selected,
-      .confirmation__emoji {
+      .confirmation__emoji,
+      .confirmation__settled {
         animation: none;
       }
     }
@@ -928,6 +1014,18 @@ app?.addEventListener("click", async (event) => {
 
   if (actionButton?.dataset.action === "start-trial") {
     await saveState(startPremiumTrial(state));
+    return;
+  }
+
+  if (actionButton?.dataset.action === "replay-confirmation") {
+    confirmationReplayKey += 1;
+    render();
+    return;
+  }
+
+  if (actionButton?.dataset.action === "reset-choice") {
+    lastRemovedChoice = null;
+    await saveState(clearSelectedChoice(state));
     return;
   }
 
