@@ -15,11 +15,13 @@ import {
   choiceModes,
   choiceThemes,
   choiceBoardStorageKey,
+  clearChoiceHistory,
   clearSelectedChoice,
   createChoiceBoardState,
   createInitialChoiceBoardState,
   createRemovedChoiceSnapshot,
   getActiveChoiceSet,
+  getChoiceHistory,
   getChoiceConfirmation,
   getChoiceCardLimit,
   getChoiceNavigationTarget,
@@ -197,7 +199,7 @@ function render(): void {
     shell.append(renderChoiceModeControls(state));
   }
 
-  shell.append(choices, renderConfirmation(state));
+  shell.append(choices, renderConfirmation(state), renderChoiceHistory(state));
 
   if (state.mode === "parent") {
     shell.append(renderPremiumGate(state));
@@ -248,6 +250,70 @@ function renderChoiceModeControls(stateToRender: ChoiceBoardState): HTMLElement 
 
   controls.append(label, buttons, note);
   return controls;
+}
+
+function renderChoiceHistory(stateToRender: ChoiceBoardState): HTMLElement {
+  const history = getChoiceHistory(stateToRender);
+  const section = document.createElement("section");
+  section.className = "choice-history";
+  section.setAttribute("aria-label", t("choiceHistoryAria"));
+
+  const header = document.createElement("div");
+  header.className = "choice-history__header";
+
+  const heading = document.createElement("h4");
+  heading.className = "choice-history__heading";
+  heading.textContent = t("choiceHistoryHeading");
+  header.append(heading);
+
+  if (stateToRender.mode === "parent" && history.length > 0) {
+    const clearButton = document.createElement("button");
+    clearButton.type = "button";
+    clearButton.className = "choice-history__clear";
+    clearButton.dataset.action = "clear-history";
+    clearButton.textContent = t("choiceHistoryClearButton");
+    header.append(clearButton);
+  }
+
+  section.append(header);
+
+  if (history.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "choice-history__empty";
+    empty.textContent = t("choiceHistoryEmpty");
+    section.append(empty);
+    return section;
+  }
+
+  const list = document.createElement("ol");
+  list.className = "choice-history__list";
+
+  for (const entry of history) {
+    const item = document.createElement("li");
+    item.className = "choice-history__item";
+
+    const emoji = document.createElement("span");
+    emoji.className = "choice-history__emoji";
+    emoji.setAttribute("aria-hidden", "true");
+    emoji.textContent = entry.emoji;
+
+    const label = document.createElement("span");
+    label.className = "choice-history__label";
+    label.textContent = entry.label;
+
+    const meta = document.createElement("span");
+    meta.className = "choice-history__meta";
+    meta.textContent = t("choiceHistoryMeta", [
+      entry.setName,
+      formatHistoryTime(entry.selectedAt),
+    ]);
+
+    item.append(emoji, label, meta);
+    list.append(item);
+  }
+
+  section.append(list);
+  return section;
 }
 
 function renderStorageStatus(message: string): HTMLElement {
@@ -550,6 +616,15 @@ function formatDate(timestamp: number): string {
   return new Intl.DateTimeFormat(chrome.i18n.getUILanguage(), {
     month: "short",
     day: "numeric",
+  }).format(new Date(timestamp));
+}
+
+function formatHistoryTime(timestamp: number): string {
+  return new Intl.DateTimeFormat(chrome.i18n.getUILanguage(), {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   }).format(new Date(timestamp));
 }
 
@@ -1053,6 +1128,94 @@ function injectStyles(): void {
       border-color: #9fb3c8;
     }
 
+    .choice-history {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid #d9e2ec;
+      border-radius: 14px;
+      background: #ffffff;
+    }
+
+    .choice-history__header {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .choice-history__heading {
+      margin: 0;
+      color: #243b53;
+      font-size: 14px;
+      line-height: 1.2;
+    }
+
+    .choice-history__clear {
+      min-height: 32px;
+      padding: 0 10px;
+      border: 1px solid #9fb3c8;
+      border-radius: 12px;
+      background: #f8fbff;
+      color: #102a43;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .choice-history__empty {
+      margin: 0;
+      color: #52606d;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .choice-history__list {
+      display: grid;
+      gap: 6px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .choice-history__item {
+      display: grid;
+      grid-template-columns: 32px minmax(0, 1fr);
+      column-gap: 8px;
+      align-items: center;
+      min-height: 38px;
+      padding: 6px 8px;
+      border-radius: 12px;
+      background: #f8fbff;
+    }
+
+    .choice-history__emoji {
+      grid-row: span 2;
+      font-size: 24px;
+      line-height: 1;
+      text-align: center;
+    }
+
+    .choice-history__label {
+      overflow: hidden;
+      color: #102a43;
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 1.2;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .choice-history__meta {
+      overflow: hidden;
+      color: #52606d;
+      font-size: 11px;
+      line-height: 1.2;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .choice-board--child .choice-card {
       min-height: 150px;
       padding: 18px 12px;
@@ -1326,6 +1489,12 @@ app?.addEventListener("click", async (event) => {
   if (actionButton?.dataset.action === "reset-choice") {
     lastRemovedChoice = null;
     await saveState(clearSelectedChoice(state));
+    return;
+  }
+
+  if (actionButton?.dataset.action === "clear-history") {
+    lastRemovedChoice = null;
+    await saveState(clearChoiceHistory(state));
     return;
   }
 

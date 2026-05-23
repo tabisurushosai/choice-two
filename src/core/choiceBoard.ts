@@ -19,6 +19,7 @@ export interface ChoiceBoardState {
   mode: ChoiceBoardMode;
   parentPin: string;
   premium: PremiumState;
+  selectionHistory: ChoiceHistoryEntry[];
 }
 
 export interface ChoiceConfirmation {
@@ -32,6 +33,16 @@ export interface RemovedChoiceSnapshot {
   choice: ChoiceCard;
   index: number;
   selectedChoiceId: string | null;
+}
+
+export interface ChoiceHistoryEntry {
+  id: string;
+  setId: string;
+  setName: string;
+  choiceId: string;
+  emoji: string;
+  label: string;
+  selectedAt: number;
 }
 
 export type ChoiceBoardMode = "parent" | "child";
@@ -76,6 +87,7 @@ export const premiumTrialDays = 7;
 export const premiumTrialMs = premiumTrialDays * 24 * 60 * 60 * 1000;
 export const stripeCheckoutUrl = "https://buy.stripe.com/test_choice_two_premium";
 export const defaultParentPin = "1234";
+export const maxChoiceHistoryEntries = 5;
 
 export interface LegacyChoiceBoardState {
   choices: ChoiceCard[];
@@ -109,6 +121,7 @@ export function createInitialChoiceBoardState(
     mode: "parent",
     parentPin: defaultParentPin,
     premium: createFreePremiumState(),
+    selectionHistory: [],
   };
 }
 
@@ -139,6 +152,7 @@ export function createChoiceBoardState(
       mode: "parent",
       parentPin: defaultParentPin,
       premium,
+      selectionHistory: [],
     };
   }
 
@@ -164,6 +178,7 @@ export function createChoiceBoardState(
     mode: normalizeChoiceBoardMode(savedState.mode),
     parentPin: normalizeParentPin(savedState.parentPin),
     premium,
+    selectionHistory: normalizeChoiceHistory(savedState.selectionHistory, text),
   };
 }
 
@@ -203,14 +218,30 @@ export function updateParentPin(
 export function selectChoice(
   state: ChoiceBoardState,
   choiceId: string,
+  now = Date.now(),
 ): ChoiceBoardState {
   const activeSet = getActiveChoiceSet(state);
-  const exists = activeSet.choices.some((choice) => choice.id === choiceId);
+  const selectedChoice = activeSet.choices.find((choice) => choice.id === choiceId) ?? null;
 
-  return updateActiveChoiceSet(state, {
+  const nextState = updateActiveChoiceSet(state, {
     ...activeSet,
-    selectedChoiceId: exists ? choiceId : activeSet.selectedChoiceId,
+    selectedChoiceId: selectedChoice ? choiceId : activeSet.selectedChoiceId,
   });
+
+  if (!selectedChoice) return nextState;
+
+  return {
+    ...nextState,
+    selectionHistory: addChoiceHistoryEntry(state.selectionHistory, {
+      id: createChoiceHistoryId(now, state.selectionHistory),
+      setId: activeSet.id,
+      setName: activeSet.name,
+      choiceId: selectedChoice.id,
+      emoji: selectedChoice.emoji,
+      label: selectedChoice.label,
+      selectedAt: now,
+    }),
+  };
 }
 
 export function clearSelectedChoice(state: ChoiceBoardState): ChoiceBoardState {
@@ -222,6 +253,19 @@ export function clearSelectedChoice(state: ChoiceBoardState): ChoiceBoardState {
     ...activeSet,
     selectedChoiceId: null,
   });
+}
+
+export function clearChoiceHistory(state: ChoiceBoardState): ChoiceBoardState {
+  if (state.selectionHistory.length === 0) return state;
+
+  return {
+    ...state,
+    selectionHistory: [],
+  };
+}
+
+export function getChoiceHistory(state: ChoiceBoardState): ChoiceHistoryEntry[] {
+  return state.selectionHistory.slice(0, maxChoiceHistoryEntries);
 }
 
 export function getSelectedChoice(state: ChoiceBoardState): ChoiceCard | null {
@@ -615,6 +659,40 @@ function normalizeChoiceSets(
   return normalized.length > 0 ? normalized : createInitialChoiceBoardState(text).sets;
 }
 
+function normalizeChoiceHistory(
+  history: unknown,
+  text: ChoiceBoardText = defaultChoiceBoardText,
+): ChoiceHistoryEntry[] {
+  return (Array.isArray(history) ? history : [])
+    .filter(isRecord)
+    .map((entry) => {
+      const selectedAt =
+        typeof entry.selectedAt === "number" && Number.isFinite(entry.selectedAt)
+          ? entry.selectedAt
+          : 0;
+
+      return {
+        id: normalizeId(entry.id),
+        setId: normalizeId(entry.setId),
+        setName: normalizeChoiceSetName(entry.setName, text),
+        choiceId: normalizeId(entry.choiceId),
+        emoji: normalizeEmoji(entry.emoji),
+        label: normalizeLabel(entry.label, text),
+        selectedAt,
+      };
+    })
+    .filter((entry) => entry.id !== "" && entry.choiceId !== "" && entry.selectedAt > 0)
+    .sort((a, b) => b.selectedAt - a.selectedAt)
+    .slice(0, maxChoiceHistoryEntries);
+}
+
+function addChoiceHistoryEntry(
+  history: ChoiceHistoryEntry[],
+  entry: ChoiceHistoryEntry,
+): ChoiceHistoryEntry[] {
+  return [entry, ...history].slice(0, maxChoiceHistoryEntries);
+}
+
 function createDefaultChoiceSet(
   id: string,
   name: string,
@@ -804,6 +882,19 @@ function createChoiceSetId(sets: ChoiceSet[]): string {
   while (existingIds.has(id)) {
     index += 1;
     id = `set-${index}`;
+  }
+
+  return id;
+}
+
+function createChoiceHistoryId(now: number, history: ChoiceHistoryEntry[]): string {
+  const existingIds = new Set(history.map((entry) => entry.id));
+  let index = 1;
+  let id = `history-${now}`;
+
+  while (existingIds.has(id)) {
+    index += 1;
+    id = `history-${now}-${index}`;
   }
 
   return id;
